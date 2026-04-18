@@ -138,16 +138,21 @@ export interface GymConfig {
   
   // Aisle configuration
   aisles: {
-    horizontal: number // number of horizontal aisles
-    vertical: number // number of vertical aisles
-    width: number // width of each aisle in meters
+    side: number // width of each side aisle in meters
+    front: number // width of the front aisle in meters
+    back: number // width of the back aisle in meters
+    carpet: number // width of the center red carpet in meters
   }
   
   // Spacing constraints
-  seatSpacing: number // meters between seats
-  rowSpacing: number // meters between rows
+  horizontalSpacing: number // meters between seats in a row
+  verticalSpacing: number // meters between rows
   minMargin: number // meters margin from walls/edges
-  
+
+  // Layout Controls
+  fixedRows?: number // Optional: specify exact number of rows
+  fixedSeatsPerRow?: number // Optional: specify exact number of seats per row
+
   // Optimization
   maxRows?: number
   preferredDensity?: 'compact' | 'comfortable' | 'spacious'
@@ -188,6 +193,9 @@ export interface LayoutOutput {
       occupied: number
       empty: number
     }
+    // Grid dimensions for floor layout
+    rowCount?: number
+    seatsPerRow?: number
   }
 }
 
@@ -220,6 +228,7 @@ export interface RenderOptions {
   showMeasurements?: boolean // Show gym/stage/seat dimensions
   showOccupancy?: boolean // Color code seats by occupancy
   showUtilization?: boolean // Show utilization heat map
+  hideEmptySeats?: boolean // Hide seats that are not occupied
   theme?: 'light' | 'dark'
 }
 

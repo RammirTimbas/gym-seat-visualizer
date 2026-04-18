@@ -38,16 +38,21 @@ export function validateConfig(config: GymConfig): ValidationResult {
   if (config.minMargin < 0) {
     errors.push('Minimum margin cannot be negative')
   }
-  if (config.aisles.width < 0) {
-    errors.push('Aisle width cannot be negative')
+  if (
+    config.aisles.side < 0 ||
+    config.aisles.front < 0 ||
+    config.aisles.back < 0 ||
+    config.aisles.carpet < 0
+  ) {
+    errors.push('Aisle widths cannot be negative')
   }
 
   // Spacing
-  if (config.seatSpacing < 0) {
-    errors.push('Seat spacing cannot be negative')
+  if (config.horizontalSpacing < 0) {
+    errors.push('Horizontal spacing cannot be negative')
   }
-  if (config.rowSpacing < 0) {
-    errors.push('Row spacing cannot be negative')
+  if (config.verticalSpacing < 0) {
+    errors.push('Vertical spacing cannot be negative')
   }
 
   // Seat types
@@ -90,7 +95,7 @@ export function validateConfig(config: GymConfig): ValidationResult {
   const usableArea =
     (config.width - 2 * config.minMargin) * (config.length - 2 * config.minMargin)
   const seatArea = config.seatTypes[0].width * config.seatTypes[0].depth
-  const estimatedSeats = (usableArea / (seatArea + config.seatSpacing + config.rowSpacing)) | 0
+  const estimatedSeats = (usableArea / (seatArea + config.horizontalSpacing + config.verticalSpacing)) | 0
 
   if (estimatedSeats < 10) {
     warnings.push(`Estimated seating capacity is very low (~${estimatedSeats} seats)`)
@@ -291,7 +296,12 @@ export function checkAisleCompliance(config: GymConfig): {
   // - Emergency exits: 1.1m minimum
 
   const minWidth = 1.5
-  const actual = config.aisles.width
+  const actual = Math.max(
+    config.aisles.side,
+    config.aisles.front,
+    config.aisles.back,
+    config.aisles.carpet
+  )
 
   return {
     compliant: actual >= minWidth,

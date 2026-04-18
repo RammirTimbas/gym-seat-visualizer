@@ -41,9 +41,10 @@ export const SMALL_GYM_CONFIG: GymConfig = {
   ],
 
   aisles: {
-    horizontal: 1,
-    vertical: 1,
-    width: 1
+    side: 1,
+    front: 1,
+    back: 1,
+    carpet: 2
   },
 
   bleachers: {
@@ -56,8 +57,8 @@ export const SMALL_GYM_CONFIG: GymConfig = {
     entranceWidth: 2
   },
 
-  seatSpacing: 0.1,
-  rowSpacing: 0.3,
+  horizontalSpacing: 0.1,
+  verticalSpacing: 0.3,
   minMargin: 0.5,
   maxRows: 8,
   preferredDensity: 'comfortable'
@@ -99,9 +100,10 @@ export const MEDIUM_GYM_CONFIG: GymConfig = {
   ],
 
   aisles: {
-    horizontal: 2,
-    vertical: 1,
-    width: 1.5
+    side: 1.5,
+    front: 1.5,
+    back: 1.5,
+    carpet: 2.5
   },
 
   bleachers: {
@@ -114,8 +116,8 @@ export const MEDIUM_GYM_CONFIG: GymConfig = {
     entranceWidth: 3
   },
 
-  seatSpacing: 0.15,
-  rowSpacing: 0.35,
+  horizontalSpacing: 0.15,
+  verticalSpacing: 0.35,
   minMargin: 1,
   maxRows: 12,
   preferredDensity: 'comfortable'
@@ -157,9 +159,10 @@ export const LARGE_ARENA_CONFIG: GymConfig = {
   ],
 
   aisles: {
-    horizontal: 3,
-    vertical: 2,
-    width: 2
+    side: 2,
+    front: 2,
+    back: 2,
+    carpet: 3
   },
 
   bleachers: {
@@ -172,8 +175,8 @@ export const LARGE_ARENA_CONFIG: GymConfig = {
     entranceWidth: 4
   },
 
-  seatSpacing: 0.12,
-  rowSpacing: 0.3,
+  horizontalSpacing: 0.12,
+  verticalSpacing: 0.3,
   minMargin: 1.5,
   maxRows: 20,
   preferredDensity: 'compact'
@@ -214,9 +217,10 @@ export const CIRCULAR_AMPHITHEATER_CONFIG: GymConfig = {
   ],
 
   aisles: {
-    horizontal: 2,
-    vertical: 2,
-    width: 1.2
+    side: 1.2,
+    front: 1.2,
+    back: 1.2,
+    carpet: 2
   },
 
   bleachers: {
@@ -229,8 +233,8 @@ export const CIRCULAR_AMPHITHEATER_CONFIG: GymConfig = {
     entranceWidth: 3
   },
 
-  seatSpacing: 0.1,
-  rowSpacing: 0.25,
+  horizontalSpacing: 0.1,
+  verticalSpacing: 0.25,
   minMargin: 1,
   maxRows: 15,
   preferredDensity: 'comfortable'

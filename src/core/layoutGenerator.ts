@@ -13,7 +13,7 @@ import {
   SeatType,
   ZoneType
 } from './types'
-import { pointInOval } from '../utils/geometry'
+import { pointInOval, pointInPolygon } from '../utils/geometry'
 
 export class LayoutGenerator {
   private config: GymConfig
@@ -38,8 +38,13 @@ export class LayoutGenerator {
       throw new Error('Minimum margin cannot be negative')
     }
 
-    if (this.config.aisles.width < 0) {
-      throw new Error('Aisle width cannot be negative')
+    if (
+      this.config.aisles.side < 0 ||
+      this.config.aisles.front < 0 ||
+      this.config.aisles.back < 0 ||
+      this.config.aisles.carpet < 0
+    ) {
+      throw new Error('Aisle widths cannot be negative')
     }
 
     // Validate bleachers if enabled
@@ -71,6 +76,10 @@ export class LayoutGenerator {
     // ... rest of generate logic ...
     // Place bleachers and seats (all available)
     let peopleRemaining = Number.POSITIVE_INFINITY
+    if (this.config.targetPeople && this.config.targetPeople > 0) {
+        peopleRemaining = this.config.targetPeople
+    }
+
     if (this.config.bleachers?.enabled) {
       peopleRemaining -= this.placeBleachers(peopleRemaining)
     }
@@ -89,48 +98,61 @@ export class LayoutGenerator {
     return this.buildOutput()
   }
 
-  /**
-   * Calculate optimal aisle positions using section-based optimization
-   * Instead of equal spacing, sections are sized to maximize seating capacity
-   * Places aisles sequentially: [Section] [Aisle] [Section] [Aisle] ... [Section]
-   */
-  private calculateOptimalAislePositions(
-    startPosition: number,
-    endPosition: number,
-    aisleCount: number
-  ): number[] {
-    if (aisleCount <= 0) return []
-    
-    const { width: aisleWidth } = this.config.aisles
-    const totalSpace = endPosition - startPosition
-    const totalAisleSpace = aisleWidth * aisleCount
-    if (totalSpace <= totalAisleSpace) return []
-    const availableForSeats = totalSpace - totalAisleSpace
-    
-    // Each of (aisleCount + 1) sections gets equal width
-    const sectionWidth = availableForSeats / (aisleCount + 1)
-    
-    // Calculate aisle centers by placing them sequentially
-    // Aisle i is positioned at: start + (i sections of width) + (i-1 previous aisles) + (current aisle center)
-    const positions: number[] = []
-    let currentPosition = startPosition
-    
-    for (let i = 0; i < aisleCount; i++) {
-      // Skip section i
-      currentPosition += sectionWidth
-      // Aisle center
-      const aisleCenter = currentPosition + aisleWidth / 2
-      positions.push(aisleCenter)
-      // Move past this aisle
-      currentPosition += aisleWidth
-    }
-    
-    return positions
-  }
-
   private getStageMaxY(): number {
     const stage = this.config.zones.find(z => z.type === ZoneType.STAGE)
     return stage ? stage.bounds.maxY : this.config.minMargin
+  }
+
+  private getBottomInset(): number {
+    return Math.min(this.config.width * 0.14, 4)
+  }
+
+  private getChamferStartY(): number {
+    return Math.max(
+      this.config.length - Math.min(this.config.length * 0.12, 3),
+      this.config.length * 0.82
+    )
+  }
+
+  private getFloorPolygon() {
+    const width = this.config.width
+    const length = this.config.length
+    const inset = this.getBottomInset()
+    const chamferStartY = this.getChamferStartY()
+
+    return [
+      { x: 0, y: 0 },
+      { x: width, y: 0 },
+      { x: width, y: chamferStartY },
+      { x: width - inset, y: length },
+      { x: inset, y: length },
+      { x: 0, y: chamferStartY }
+    ]
+  }
+
+  private calculateDistributedCenters(
+    startPosition: number,
+    endPosition: number,
+    laneWidth: number,
+    laneCount: number
+  ): number[] {
+    if (laneCount <= 0 || laneWidth <= 0) return []
+
+    const totalSpace = endPosition - startPosition
+    const totalLaneSpace = laneWidth * laneCount
+    if (totalSpace <= totalLaneSpace) return []
+
+    const sectionWidth = (totalSpace - totalLaneSpace) / (laneCount + 1)
+    const positions: number[] = []
+    let currentPosition = startPosition
+
+    for (let i = 0; i < laneCount; i++) {
+      currentPosition += sectionWidth
+      positions.push(currentPosition + laneWidth / 2)
+      currentPosition += laneWidth
+    }
+
+    return positions
   }
 
   private getBleacherDepth(): number {
@@ -138,12 +160,23 @@ export class LayoutGenerator {
     return Math.max(0, this.config.bleachers.width)
   }
 
+  private getBottomBlockedDepth(): number {
+    const blockedAtBottom = this.config.zones.filter(z =>
+      z.id === 'table-left' || z.id === 'table-right' || z.id === 'photobooth'
+    );
+    if (blockedAtBottom.length > 0) {
+      return Math.max(...blockedAtBottom.map(z => z.bounds.maxY - z.bounds.minY));
+    }
+    return 0;
+  }
+
   private getUsableFloorBounds() {
     const bleacherDepth = this.getBleacherDepth()
-    const minX = this.config.minMargin + bleacherDepth
-    const maxX = this.config.width - this.config.minMargin - bleacherDepth
-    const minY = Math.max(this.config.minMargin, this.getStageMaxY())
-    const maxY = this.config.length - this.config.minMargin - bleacherDepth
+    const bottomBlocked = this.getBottomBlockedDepth()
+    const minX = this.config.minMargin + bleacherDepth + this.config.aisles.side
+    const maxX = this.config.width - this.config.minMargin - bleacherDepth - this.config.aisles.side
+    const minY = Math.max(this.config.minMargin, this.getStageMaxY()) + this.config.aisles.front
+    const maxY = this.config.length - this.config.minMargin - bleacherDepth - this.config.aisles.back - bottomBlocked
 
     return { minX, maxX, minY, maxY }
   }
@@ -160,56 +193,83 @@ export class LayoutGenerator {
     this.config.zones = this.config.zones.filter(
       z => z.type !== ZoneType.AISLE && z.type !== ZoneType.BLEACHER
     )
-    const { width, horizontal, vertical } = this.config.aisles
-    const floorBounds = this.getUsableFloorBounds()
-    
-    // Horizontal aisles (run left-right, spaced along gym length)
-    if (horizontal > 0 && width > 0) {
-      const availableLength = floorBounds.maxY - floorBounds.minY
-      if (availableLength > 0) {
-        const positions = this.calculateOptimalAislePositions(
-          floorBounds.minY,
-          floorBounds.maxY,
-          horizontal
-        )
-        
-        for (let i = 0; i < positions.length; i++) {
-          const centerY = positions[i]
-          this.config.zones.push({
-            id: `aisle-h-${i + 1}`,
-            type: ZoneType.AISLE,
-            bounds: {
-              minX: floorBounds.minX,
-              maxX: floorBounds.maxX,
-              minY: centerY - width / 2,
-              maxY: centerY + width / 2
-            },
-            label: 'Aisle'
-          })
-        }
-      }
-    }
-    
-    // Vertical aisles (run top-bottom, spaced along gym width)
-    if (vertical > 0 && width > 0) {
-      const positions = this.calculateOptimalAislePositions(
-        floorBounds.minX,
-        floorBounds.maxX,
-        vertical
-      )
+    const { side, front, back, carpet } = this.config.aisles
+    const stageMaxY = Math.max(0, this.getStageMaxY())
 
-      for (let i = 0; i < positions.length; i++) {
-        const centerX = positions[i]
-        this.config.zones.push({
-          id: `aisle-v-${i + 1}`,
+    // Check for Tables at the bottom to avoid overlap
+    const bottomBlocked = this.getBottomBlockedDepth();
+
+    if (side > 0) {
+      this.config.zones.push(
+        {
+          id: 'aisle-side-left',
           type: ZoneType.AISLE,
           bounds: {
-            minX: centerX - width / 2,
-            maxX: centerX + width / 2,
-            minY: floorBounds.minY,
-            maxY: floorBounds.maxY
+            minX: this.config.minMargin,
+            maxX: this.config.minMargin + side,
+            // Side aisles now span the full height of the gym floor
+            minY: 0,
+            maxY: this.config.length
           },
-          label: 'Aisle'
+          label: 'Side Aisle'
+        },
+        {
+          id: 'aisle-side-right',
+          type: ZoneType.AISLE,
+          bounds: {
+            minX: this.config.width - this.config.minMargin - side,
+            maxX: this.config.width - this.config.minMargin,
+            // Side aisles now span the full height of the gym floor
+            minY: 0,
+            maxY: this.config.length
+          },
+          label: 'Side Aisle'
+        }
+      )
+    }
+
+    if (front > 0) {
+      this.config.zones.push({
+        id: 'aisle-front',
+        type: ZoneType.AISLE,
+        bounds: {
+          minX: this.config.minMargin,
+          maxX: this.config.width - this.config.minMargin,
+          minY: stageMaxY,
+          maxY: stageMaxY + front
+        },
+        label: 'Front Aisle'
+      })
+    }
+
+    if (back > 0) {
+      this.config.zones.push({
+        id: 'aisle-back',
+        type: ZoneType.AISLE,
+        bounds: {
+          minX: this.getBottomInset(),
+          maxX: this.config.width - this.getBottomInset(),
+          minY: this.config.length - bottomBlocked - back,
+          maxY: this.config.length - bottomBlocked
+        },
+        label: 'Back Aisle'
+      })
+    }
+
+    if (carpet > 0) {
+      const minY = stageMaxY + front
+      const maxY = this.config.length - back - bottomBlocked
+      if (maxY > minY) {
+        this.config.zones.push({
+          id: 'aisle-carpet',
+          type: ZoneType.AISLE,
+          bounds: {
+            minX: this.config.width / 2 - carpet / 2,
+            maxX: this.config.width / 2 + carpet / 2,
+            minY,
+            maxY
+          },
+          label: 'Red Carpet'
         })
       }
     }
@@ -219,10 +279,11 @@ export class LayoutGenerator {
     const config = this.config.bleachers
     if (!config?.enabled || config.width <= 0) return []
 
+    const bottomBlocked = this.getBottomBlockedDepth();
     const minX = this.config.minMargin
     const maxX = this.config.width - this.config.minMargin
     const minY = Math.max(this.config.minMargin, this.getStageMaxY())
-    const maxY = this.config.length - this.config.minMargin
+    const maxY = this.config.length - this.config.minMargin - bottomBlocked
     const depth = Math.min(config.width, Math.max(0, (maxX - minX) / 2 - 0.1))
     const requestedEntranceWidth = Number.isFinite(config.entranceWidth) ? config.entranceWidth : 2.5
     const entranceWidth = Math.min(Math.max(requestedEntranceWidth, 0), Math.max(0, maxX - minX - 0.2))
@@ -296,7 +357,7 @@ export class LayoutGenerator {
 
       const start = this.isVerticalBleacherZone(zone) ? zone.bounds.minY : zone.bounds.minX
       const end = this.isVerticalBleacherZone(zone) ? zone.bounds.maxY : zone.bounds.maxX
-      return this.calculateOptimalAislePositions(start, end, count)
+      return this.calculateDistributedCenters(start, end, this.getPrimaryAisleWidth(), count)
     })
   }
 
@@ -319,10 +380,6 @@ export class LayoutGenerator {
   ): boolean {
     return aisleCenters.some(center => Math.abs(axisCoord - center) < (aisleWidth + seatWidth) / 2)
   }
-
-  // Place bleachers first if enabled, allocate as many people as possible there
-  // (rest of generate method)
-  // ...existing code...
 
   /**
    * Reserve blocked areas (stage, VIP, etc.)
@@ -348,10 +405,6 @@ export class LayoutGenerator {
   }
 
   /**
-   * Place seats in rectangular/square layout
-   */
-
-  /**
    * Place bleacher seats
    */
   // Place as many people as possible in bleachers, return number placed
@@ -362,8 +415,7 @@ export class LayoutGenerator {
     ) {
       return this.placeBleachersRectangularContinuous(peopleToAllocate)
     }
-
-    return this.placeBleachersSegmented(peopleToAllocate)
+    return 0
   }
 
   private placeBleachersRectangularContinuous(peopleToAllocate: number): number {
@@ -381,10 +433,11 @@ export class LayoutGenerator {
     const stageMaxY = this.getStageMaxY()
     const minX = this.config.minMargin
     const maxX = this.config.width - this.config.minMargin
-    const maxY = this.config.length - this.config.minMargin
+    const bottomBlocked = this.getBottomBlockedDepth()
+    const maxY = this.config.length - this.config.minMargin - bottomBlocked
     const entranceStart = (this.config.width - config.entranceWidth) / 2
     const entranceEnd = entranceStart + config.entranceWidth
-    const pitch = seatType.width + this.config.seatSpacing
+    const pitch = seatType.width + this.config.horizontalSpacing
     let placed = 0
 
     for (let step = 0; step < config.numberOfSteps; step++) {
@@ -448,65 +501,6 @@ export class LayoutGenerator {
     return placed
   }
 
-  private placeBleachersSegmented(peopleToAllocate: number): number {
-    const config = this.config.bleachers
-    if (!config) return 0
-
-    const seatType = this.config.seatTypes[0]
-    if (!seatType) return 0
-
-    const bleacherZones = this.buildBleacherZones()
-    if (bleacherZones.length === 0) return 0
-
-    let placed = 0
-    const aisleAssignments = this.distributeBleacherAisles(bleacherZones)
-    const stepDepth = config.width / Math.max(config.numberOfSteps, 1)
-    const stepPositions = Array.from({ length: config.numberOfSteps }, () => 0)
-
-    bleacherZones.forEach((zone, zoneIndex) => {
-      const isVertical = this.isVerticalBleacherZone(zone)
-      const aisleCenters = aisleAssignments[zoneIndex]
-      const segmentStart = isVertical ? zone.bounds.minY : zone.bounds.minX
-      const segmentEnd = isVertical ? zone.bounds.maxY : zone.bounds.maxX
-      const bleacherSeatType = {
-        ...seatType,
-        type: SeatType.BLEACHER
-      }
-      const seatPitch = seatType.width + this.config.seatSpacing
-
-      for (let step = 0; step < config.numberOfSteps; step++) {
-        const rowNumber = 1000 + step
-        const fixedCoord = this.getBleacherFixedCoordinate(zone, stepDepth, step)
-
-        for (
-          let axisCoord = segmentStart + seatType.width / 2;
-          axisCoord + seatType.width / 2 <= segmentEnd;
-          axisCoord += seatPitch
-        ) {
-          if (peopleToAllocate > 0 && placed >= peopleToAllocate) break
-          if (this.overlapsBleacherAisle(axisCoord, aisleCenters, this.config.aisles.width, seatType.width)) continue
-
-          const x = isVertical ? fixedCoord : axisCoord
-          const y = isVertical ? axisCoord : fixedCoord
-
-          if (!this.isPositionBlocked(x, y, bleacherSeatType) && this.pointInShape(x, y)) {
-            const positionInRow = stepPositions[step]++
-            const seat = this.createSeat(x, y, rowNumber, positionInRow, bleacherSeatType)
-            seat.metadata.seatNumber = `${positionInRow + 1}`
-            seat.metadata.bleacher = true
-            this.seats.push(seat)
-            this.markAreaAsUsed(x, y, bleacherSeatType.width, bleacherSeatType.depth)
-            placed++
-          }
-        }
-      }
-    })
-
-    this.config.zones.push(...bleacherZones)
-    this.reserveZoneList(bleacherZones)
-    return placed
-  }
-
   // Place seats in rectangular/square layout, avoid area behind stage, maximize view
   private placeSeatsRectangularSmart(peopleToAllocate: number): void {
     const seatType = this.config.seatTypes[0]
@@ -519,12 +513,18 @@ export class LayoutGenerator {
     const maxY = floorBounds.maxY
     let rowNumber = 0
     let placed = 0
+
+    // If fixedRows is set, we might need to adjust vertical spacing to fit them
+    // or just stop when we hit the limit.
+    const maxRows = this.config.fixedRows ?? this.config.maxRows ?? Number.POSITIVE_INFINITY
+
     for (
       let currentY = seatingStartY + seatType.depth / 2;
       currentY + seatType.depth / 2 < maxY;
-      currentY += seatType.depth + this.config.rowSpacing
+      currentY += seatType.depth + this.config.verticalSpacing
     ) {
-      if (typeof this.config.maxRows === 'number' && this.config.maxRows >= 0 && rowNumber >= this.config.maxRows) break
+      if (rowNumber >= maxRows) break
+
       // Orient row to face stage (all rows parallel to stage front)
       placed += this.placeRowRectangularSmart(rowNumber, currentY, startX, usableWidth, seatType, peopleToAllocate - placed)
       rowNumber++
@@ -542,33 +542,41 @@ export class LayoutGenerator {
     peopleToAllocate: number
   ): number {
     let positionInRow = 0
-    const seatsPerRow = Math.floor(
-      (usableWidth - this.config.aisles.width) / (seatType.width + this.config.seatSpacing)
+
+    // Use fixedSeatsPerRow if provided, otherwise calculate max possible
+    const seatsPerRow = this.config.fixedSeatsPerRow ?? Math.floor(
+      (usableWidth + this.config.horizontalSpacing) / (seatType.width + this.config.horizontalSpacing)
     )
+
     const totalRowWidth =
-      seatsPerRow * seatType.width + (seatsPerRow - 1) * this.config.seatSpacing
-    const rowCenterX = startX + (usableWidth - totalRowWidth) / 2
-    let placed = 0
+      seatsPerRow * seatType.width + (seatsPerRow - 1) * this.config.horizontalSpacing
+
+    // Center the row if usableWidth > totalRowWidth
+    const rowCenterX = startX + Math.max(0, (usableWidth - totalRowWidth) / 2)
+
+    let placedInRow = 0
     for (let i = 0; i < seatsPerRow; i++) {
-      if (peopleToAllocate > 0 && placed >= peopleToAllocate) break
+      if (peopleToAllocate > 0 && placedInRow >= peopleToAllocate) break
+
       const seatX =
-        rowCenterX + i * (seatType.width + this.config.seatSpacing) + seatType.width / 2
+        rowCenterX + i * (seatType.width + this.config.horizontalSpacing) + seatType.width / 2
       const seatY = baseY
+
+      // If we have fixedSeatsPerRow, we might want to be less strict about "isPositionBlocked"
+      // or at least report if we couldn't fit them. For now, we keep the safety check.
       if (!this.isPositionBlocked(seatX, seatY, seatType)) {
         const seat = this.createSeat(seatX, seatY, rowNumber, positionInRow, seatType)
         this.seats.push(seat)
         positionInRow++
         this.markAreaAsUsed(seatX, seatY, seatType.width, seatType.depth)
-        placed++
+        placedInRow++
       }
     }
-    return placed
+    return placedInRow
   }
 
   // Place seats in oval layout, avoid area behind stage, maximize view
   private placeSeatsOvalSmart(peopleToAllocate: number): void {
-    // For brevity, use same as placeSeatsOval but skip seats behind stage if present
-    // (A real implementation would do more advanced sightline analysis)
     const seatType = this.config.seatTypes[0]
     if (!seatType) return
     const centerX = this.config.width / 2
@@ -579,12 +587,12 @@ export class LayoutGenerator {
     let placed = 0
     const stage = this.config.zones?.find(z => z.type === 'stage')
     const stageEndY = stage ? stage.bounds.maxY : 0
-    for (let r = 0.3; r <= 1.0; r += (seatType.depth + this.config.rowSpacing) / Math.max(radiusY, 1)) {
+    for (let r = 0.3; r <= 1.0; r += (seatType.depth + this.config.verticalSpacing) / Math.max(radiusY, 1)) {
       if (typeof this.config.maxRows === 'number' && this.config.maxRows >= 0 && rowNumber >= this.config.maxRows) break
       const currentRadiusX = radiusX * r
       const currentRadiusY = radiusY * r
       const ovalCircumference = 2 * Math.PI * Math.sqrt((currentRadiusX ** 2 + currentRadiusY ** 2) / 2)
-      const seatsPerOval = Math.max(4, Math.floor(ovalCircumference / (seatType.width + this.config.seatSpacing)))
+      const seatsPerOval = Math.max(4, Math.floor((ovalCircumference + this.config.horizontalSpacing) / (seatType.width + this.config.horizontalSpacing)))
       for (let i = 0; i < seatsPerOval; i++) {
         if (peopleToAllocate > 0 && placed >= peopleToAllocate) break
         const angle = (i / seatsPerOval) * Math.PI * 2
@@ -605,7 +613,6 @@ export class LayoutGenerator {
 
   // Place seats in circular layout, avoid area behind stage, maximize view
   private placeSeatsCircularSmart(peopleToAllocate: number): void {
-    // For brevity, use same as placeSeatsCircular but skip seats behind stage if present
     const seatType = this.config.seatTypes[0]
     if (!seatType) return
     const centerX = this.config.width / 2
@@ -615,11 +622,11 @@ export class LayoutGenerator {
     let placed = 0
     const stage = this.config.zones?.find(z => z.type === 'stage')
     const stageEndY = stage ? stage.bounds.maxY : 0
-    for (let r = 0.3; r <= 1.0; r += (seatType.depth + this.config.rowSpacing) / radius) {
+    for (let r = 0.3; r <= 1.0; r += (seatType.depth + this.config.verticalSpacing) / radius) {
       if (typeof this.config.maxRows === 'number' && this.config.maxRows >= 0 && rowNumber >= this.config.maxRows) break
       const currentRadius = radius * r
       const circumference = 2 * Math.PI * currentRadius
-      const seatsPerRing = Math.max(4, Math.floor(circumference / (seatType.width + this.config.seatSpacing)))
+      const seatsPerRing = Math.max(4, Math.floor((circumference + this.config.horizontalSpacing) / (seatType.width + this.config.horizontalSpacing)))
       for (let i = 0; i < seatsPerRing; i++) {
         if (peopleToAllocate > 0 && placed >= peopleToAllocate) break
         const angle = (i / seatsPerRing) * Math.PI * 2
@@ -646,6 +653,10 @@ export class LayoutGenerator {
     y: number,
     seatType: typeof this.config.seatTypes[0]
   ): boolean {
+    if (!this.isSeatWithinShape(x, y, seatType)) {
+      return true
+    }
+
     // Check against zones
     for (const zone of this.config.zones) {
       if (
@@ -662,6 +673,23 @@ export class LayoutGenerator {
     const gridX = Math.floor(x * 100)
     const gridY = Math.floor(y * 100)
     return this.usedArea.has(`${gridX},${gridY}`)
+  }
+
+  private isSeatWithinShape(
+    x: number,
+    y: number,
+    seatType: typeof this.config.seatTypes[0]
+  ): boolean {
+    const halfW = seatType.width / 2
+    const halfD = seatType.depth / 2
+    const corners = [
+      { x: x - halfW, y: y - halfD },
+      { x: x + halfW, y: y - halfD },
+      { x: x + halfW, y: y + halfD },
+      { x: x - halfW, y: y + halfD }
+    ]
+
+    return corners.every(corner => this.pointInShape(corner.x, corner.y))
   }
 
   /**
@@ -688,13 +716,17 @@ export class LayoutGenerator {
       case GymnasiumShape.RECTANGLE:
       case GymnasiumShape.SQUARE:
       default:
-        return (
-          x >= this.config.minMargin &&
-          x <= this.config.width - this.config.minMargin &&
-          y >= this.config.minMargin &&
-          y <= this.config.length - this.config.minMargin
-        )
+        return pointInPolygon({ x, y }, this.getFloorPolygon())
     }
+  }
+
+  private getPrimaryAisleWidth(): number {
+    return Math.max(
+      this.config.aisles.side,
+      this.config.aisles.front,
+      this.config.aisles.back,
+      this.config.aisles.carpet
+    )
   }
 
   /**
@@ -765,6 +797,21 @@ export class LayoutGenerator {
     const seatsByType = this.countSeatsByType()
     const occupiedSeats = this.seats.filter(s => s.metadata.occupied).length
 
+    // Calculate grid dimensions
+    const floorSeats = this.seats.filter(s => !s.metadata.bleacher)
+    const rows = new Set(floorSeats.map(s => s.metadata.row))
+    const rowCount = rows.size
+
+    let maxSeatsInRow = 0
+    if (rowCount > 0) {
+        const seatsPerRowMap = new Map<number, number>()
+        floorSeats.forEach(s => {
+            const count = seatsPerRowMap.get(s.metadata.row) || 0
+            seatsPerRowMap.set(s.metadata.row, count + 1)
+        })
+        maxSeatsInRow = Math.max(...Array.from(seatsPerRowMap.values()))
+    }
+
     return {
       configId: this.config.id,
       timestamp: Date.now(),
@@ -789,7 +836,9 @@ export class LayoutGenerator {
         seatsByOccupancy: {
           occupied: occupiedSeats,
           empty: this.seats.length - occupiedSeats
-        }
+        },
+        rowCount,
+        seatsPerRow: maxSeatsInRow
       }
     }
   }

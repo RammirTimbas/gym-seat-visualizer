@@ -24,7 +24,7 @@ export class Canvas2DRenderer {
       seatVip: '#f59e0b',
       seatBleacher: '#fb923c',
       zone: {
-        stage: '#ef4444',
+        stage: '#efad44',
         vip: '#f59e0b',
         blocked: '#9ca3af',
         aisle: '#f3f4f6',
@@ -69,6 +69,7 @@ export class Canvas2DRenderer {
       showLegend: true,
       showWarnings: true,
       showMeasurements: true,
+      hideEmptySeats: false,
       theme: 'light',
       ...initialOptions
     }
@@ -129,7 +130,7 @@ export class Canvas2DRenderer {
   /**
    * Calculate optimal scale and offset to fit layout in view
    */
-  private fitLayoutInView(): void {
+  private fitLayoutInView(centerInViewport = false): void {
     if (!this.layout) return
 
     const padding = 50 // pixels
@@ -141,7 +142,11 @@ export class Canvas2DRenderer {
     let maxY = -Infinity
 
     // Check seats
-    for (const seat of this.layout.seats) {
+    const seatsToConsider = this.renderOptions.hideEmptySeats
+      ? this.layout.seats.filter(s => s.metadata.occupied)
+      : this.layout.seats
+
+    for (const seat of seatsToConsider) {
       const halfW = seat.dimension.width / 2
       const halfD = seat.dimension.depth / 2
       minX = Math.min(minX, seat.position.x - halfW)
@@ -158,6 +163,12 @@ export class Canvas2DRenderer {
       maxY = Math.max(maxY, zone.bounds.maxY)
     }
 
+    // Fallback if no seats are visible
+    if (minX === Infinity) {
+        minX = 0; maxX = this.layout.config?.width || 20;
+        minY = 0; maxY = this.layout.config?.length || 15;
+    }
+
     const width = maxX - minX
     const height = maxY - minY
 
@@ -168,6 +179,16 @@ export class Canvas2DRenderer {
     const scaleY = availableHeight / height
 
     this.renderContext.scale = Math.min(scaleX, scaleY, 50) // Cap at 50 px/m
+
+    if (centerInViewport) {
+      const renderedWidth = width * this.renderContext.scale
+      const renderedHeight = height * this.renderContext.scale
+      this.renderContext.offsetX =
+        (this.renderContext.width - renderedWidth) / 2 - minX * this.renderContext.scale
+      this.renderContext.offsetY =
+        (this.renderContext.height - renderedHeight) / 2 - minY * this.renderContext.scale
+      return
+    }
 
     this.renderContext.offsetX = padding - minX * this.renderContext.scale
     this.renderContext.offsetY = padding - minY * this.renderContext.scale
@@ -219,53 +240,140 @@ export class Canvas2DRenderer {
     }
   }
 
+  private getStageZone() {
+    return this.layout?.zones.find(zone => zone.type === ZoneType.STAGE) || null
+  }
+
+  private isExteriorStage(): boolean {
+    const stage = this.getStageZone()
+    return !!stage && stage.bounds.maxY <= 0
+  }
+
+  private getRectangularFootprintPoints(): Array<{ x: number; y: number }> {
+    if (!this.layout?.config) return []
+
+    const { width, length } = this.layout.config
+    const stage = this.getStageZone()
+    const bottomInset = Math.min(width * 0.14, 4)
+    const chamferStartY = Math.max(length - Math.min(length * 0.12, 3), length * 0.82)
+
+    if (this.isExteriorStage() && stage) {
+      return [
+        { x: 0, y: 0 },
+        { x: stage.bounds.minX, y: 0 },
+        { x: stage.bounds.minX, y: stage.bounds.minY },
+        { x: stage.bounds.maxX, y: stage.bounds.minY },
+        { x: stage.bounds.maxX, y: 0 },
+        { x: width, y: 0 },
+        { x: width, y: chamferStartY },
+        { x: width - bottomInset, y: length },
+        { x: bottomInset, y: length },
+        { x: 0, y: chamferStartY }
+      ]
+    }
+
+    return [
+      { x: 0, y: 0 },
+      { x: width, y: 0 },
+      { x: width, y: chamferStartY },
+      { x: width - bottomInset, y: length },
+      { x: bottomInset, y: length },
+      { x: 0, y: chamferStartY }
+    ]
+  }
+
+  private buildFootprintPath(): void {
+    if (!this.layout?.config) return
+
+    if (
+      this.layout.config.shape !== GymnasiumShape.RECTANGLE &&
+      this.layout.config.shape !== GymnasiumShape.SQUARE
+    ) {
+      this.ctx.beginPath()
+      this.ctx.rect(
+        this.renderContext.offsetX,
+        this.renderContext.offsetY,
+        this.layout.config.width * this.renderContext.scale,
+        this.layout.config.length * this.renderContext.scale
+      )
+      return
+    }
+
+    const points = this.getRectangularFootprintPoints()
+    this.ctx.beginPath()
+    points.forEach((point, index) => {
+      const x = point.x * this.renderContext.scale + this.renderContext.offsetX
+      const y = point.y * this.renderContext.scale + this.renderContext.offsetY
+      if (index === 0) {
+        this.ctx.moveTo(x, y)
+      } else {
+        this.ctx.lineTo(x, y)
+      }
+    })
+    this.ctx.closePath()
+  }
+
+  private clipToGymFootprint(): void {
+    this.buildFootprintPath()
+    this.ctx.clip()
+  }
+
+  private getZoneDisplayLabel(zoneId: string, fallback?: string): string | null {
+    if (zoneId.includes('clearance') || zoneId.includes('reserved')) return null
+
+    const labels: Record<string, string> = {
+      'table-left': 'Medical Team',
+      'table-right': 'Medical Team',
+      'aisle-side-left': 'Left Aisle',
+      'aisle-side-right': 'Right Aisle',
+      'aisle-front': 'Front Aisle',
+      'aisle-back': 'Back Aisle',
+      'aisle-carpet': 'Red Carpet',
+      'photobooth': 'Photo Booth'
+    }
+
+    return labels[zoneId] || fallback || null
+  }
+
   /**
    * Draw a red border showing the gym's size and coverage, with label and dimension text
    */
   private drawGymBorder(): void {
     if (!this.layout || !this.layout.config) return
-    const config = this.layout.config;
-    // Draw border around full gym dimensions
-    const minX = 0;
-    const minY = 0;
-    const maxX = config.width;
-    const maxY = config.length;
-    const x1 = minX * this.renderContext.scale + this.renderContext.offsetX;
-    const y1 = minY * this.renderContext.scale + this.renderContext.offsetY;
-    const width = (maxX - minX) * this.renderContext.scale;
-    const height = (maxY - minY) * this.renderContext.scale;
+    const config = this.layout.config
+    const x1 = this.renderContext.offsetX
+    const y1 = this.renderContext.offsetY
+    const width = config.width * this.renderContext.scale
 
-    // Draw red border
-    this.ctx.save();
-    this.ctx.strokeStyle = '#ef4444';
-    this.ctx.lineWidth = 4;
-    this.ctx.globalAlpha = 0.85;
-    this.ctx.setLineDash([8, 6]);
-    this.ctx.strokeRect(x1, y1, width, height);
-    this.ctx.setLineDash([]);
-    this.ctx.globalAlpha = 1;
+    this.ctx.save()
+    this.ctx.strokeStyle = '#ef4444'
+    this.ctx.lineWidth = 4
+    this.ctx.globalAlpha = 0.85
+    this.ctx.setLineDash([8, 6])
+    this.buildFootprintPath()
+    this.ctx.stroke()
+    this.ctx.setLineDash([])
+    this.ctx.globalAlpha = 1
 
-    // Draw label and dimensions (optional)
-    // Skip gym text if stage zone exists (stage label takes priority)
-    const hasStage = this.layout.zones?.some(z => z.type === ZoneType.STAGE);
+    const hasStage = this.layout.zones?.some(z => z.type === ZoneType.STAGE)
     if (this.renderOptions.showMeasurements && !hasStage) {
-      const fontSize = 16;
-      this.ctx.font = `bold ${fontSize}px sans-serif`;
-      this.ctx.fillStyle = '#ef4444';
-      this.ctx.textAlign = 'left';
-      this.ctx.textBaseline = 'top';
-      const labelText = config.name || 'Gym';
-      this.ctx.fillText(labelText, x1 + 8, y1 + 8);
+      const fontSize = 16
+      this.ctx.font = `bold ${fontSize}px sans-serif`
+      this.ctx.fillStyle = '#ef4444'
+      this.ctx.textAlign = 'left'
+      this.ctx.textBaseline = 'top'
+      const labelText = config.name || 'Gym'
+      this.ctx.fillText(labelText, x1 + 8, y1 + 8)
 
-      const dimFont = 14;
-      this.ctx.font = `${dimFont}px monospace`;
-      const dimText = `${config.width.toFixed(2)}m × ${config.length.toFixed(2)}m`;
-      this.ctx.textAlign = 'center';
-      this.ctx.textBaseline = 'top';
-      this.ctx.fillText(dimText, x1 + width / 2, y1 + 8);
+      const dimFont = 14
+      this.ctx.font = `${dimFont}px monospace`
+      const dimText = `${config.width.toFixed(2)}m x ${config.length.toFixed(2)}m`
+      this.ctx.textAlign = 'center'
+      this.ctx.textBaseline = 'top'
+      this.ctx.fillText(dimText, x1 + width / 2, y1 + 8)
     }
 
-    this.ctx.restore();
+    this.ctx.restore()
   }
 
   /**
@@ -318,6 +426,9 @@ export class Canvas2DRenderer {
       if (zone.type === ZoneType.AISLE) {
         continue
       }
+      if (zone.id.includes('reserved')) {
+        continue
+      }
 
       const x1 = zone.bounds.minX * this.renderContext.scale + this.renderContext.offsetX
       const y1 = zone.bounds.minY * this.renderContext.scale + this.renderContext.offsetY
@@ -340,21 +451,30 @@ export class Canvas2DRenderer {
       this.ctx.strokeRect(x1, y1, width, height)
 
       // Draw label (always show stage label; optional for others)
-      if ((this.renderOptions.showLabels || zone.type === ZoneType.STAGE) && zone.label) {
+      const zoneLabel = this.getZoneDisplayLabel(zone.id, zone.label)
+      if ((this.renderOptions.showLabels || zone.type === ZoneType.STAGE) && zoneLabel) {
         this.ctx.fillStyle = theme.text
-        this.ctx.font = '12px sans-serif'
         this.ctx.textAlign = 'center'
         this.ctx.textBaseline = 'middle'
-        this.ctx.fillText(zone.label, (x1 + x2) / 2, (y1 + y2) / 2)
+        // Use fit text to handle potential overflow for "Photo Booth" or other long labels
+        this.drawFittingText(zoneLabel, (x1 + x2) / 2, (y1 + y2) / 2, width - 8, height - 8, 13)
       }
 
       // Draw dimension text for zones with fixed font size (readable at any zoom)
-      if (this.renderOptions.showMeasurements) {
+      // Hide measurements for tables and photobooth to keep it clean as requested
+      const hideMeasurements = zone.id === 'table-left' || zone.id === 'table-right' || zone.id === 'photobooth'
+
+      if (
+        this.renderOptions.showMeasurements &&
+        !zone.id.includes('clearance') &&
+        !zone.id.includes('reserved') &&
+        !hideMeasurements
+      ) {
         const zoneWidth = zone.bounds.maxX - zone.bounds.minX
         const zoneHeight = zone.bounds.maxY - zone.bounds.minY
         
         let dimText: string
-        dimText = `${zoneWidth.toFixed(2)}m × ${zoneHeight.toFixed(2)}m`
+        dimText = `${zoneWidth.toFixed(2)}m x ${zoneHeight.toFixed(2)}m`
         
         this.ctx.save()
         this.ctx.font = 'bold 10px monospace'
@@ -382,17 +502,63 @@ export class Canvas2DRenderer {
       const x2 = zone.bounds.maxX * this.renderContext.scale + this.renderContext.offsetX
       const y2 = zone.bounds.maxY * this.renderContext.scale + this.renderContext.offsetY
 
-      // Render aisles as solid strips with light gray fill
-      this.ctx.fillStyle = '#ededed'
+      const isCarpet = zone.id === 'aisle-carpet'
+      this.ctx.save()
+      this.clipToGymFootprint()
+      this.ctx.fillStyle = isCarpet ? '#b91c1c' : '#ededed'
       this.ctx.globalAlpha = 1
       this.ctx.fillRect(x1, y1, x2 - x1, y2 - y1)
 
-      // Optional: border
-      this.ctx.strokeStyle = '#999999'
+      this.ctx.strokeStyle = isCarpet ? '#7f1d1d' : '#999999'
       this.ctx.lineWidth = 1
       this.ctx.globalAlpha = 1
       this.ctx.strokeRect(x1, y1, x2 - x1, y2 - y1)
+
+      if (this.renderOptions.showLabels) {
+        const aisleLabel = this.getZoneDisplayLabel(zone.id, zone.label)
+        if (aisleLabel) {
+          this.ctx.fillStyle = isCarpet ? '#fff7ed' : theme.text
+          this.ctx.font = 'bold 11px sans-serif'
+          this.ctx.textAlign = 'center'
+          this.ctx.textBaseline = 'middle'
+          this.ctx.fillText(aisleLabel, (x1 + x2) / 2, (y1 + y2) / 2)
+        }
+      }
+
+      this.ctx.restore()
     }
+  }
+
+  /**
+   * Draw text that fits within a box by shrinking and wrapping
+   */
+  private drawFittingText(text: string, centerX: number, centerY: number, maxWidth: number, maxHeight: number, baseFontSize = 13): void {
+    let fontSize = baseFontSize
+    this.ctx.font = `bold ${fontSize}px sans-serif`
+
+    // Initial wrap check
+    let lines = this.wrapCanvasText(text, maxWidth)
+
+    // If it's too wide (e.g. single long word) or too tall, shrink font
+    while (fontSize > 7) {
+      this.ctx.font = `bold ${fontSize}px sans-serif`
+      lines = this.wrapCanvasText(text, maxWidth)
+      const totalHeight = lines.length * (fontSize * 1.2)
+
+      const fitsWidth = lines.every(line => this.ctx.measureText(line).width <= maxWidth)
+      if (fitsWidth && totalHeight <= maxHeight) {
+        break
+      }
+      fontSize -= 0.5
+    }
+
+    const lineHeight = fontSize * 1.2
+    const totalHeight = lines.length * lineHeight
+    const startY = centerY - (totalHeight / 2) + (fontSize / 2)
+
+    lines.forEach((line, i) => {
+      this.ctx.fillText(line, centerX, startY + i * lineHeight)
+    })
   }
 
   /**
@@ -424,7 +590,7 @@ export class Canvas2DRenderer {
       this.ctx.fillText('Gym', x1 + 8, y1 + 8)
       
       // Gym dimensions below label (full gym, not usable area)
-      const dimText = `${config.width.toFixed(2)}m × ${config.length.toFixed(2)}m`
+      const dimText = `${config.width.toFixed(2)}m x ${config.length.toFixed(2)}m`
       this.ctx.font = 'bold 10px monospace'
       this.ctx.fillText(dimText, x1 + 8, y1 + 22)
       
@@ -442,6 +608,10 @@ export class Canvas2DRenderer {
     const bleacherRows = new Map<number, Seat[]>()
 
     for (const seat of this.layout.seats) {
+      if (this.renderOptions.hideEmptySeats && !seat.metadata.occupied) {
+        continue
+      }
+
       if (seat.metadata.bleacher) {
         const rowSeats = bleacherRows.get(seat.metadata.row) || []
         rowSeats.push(seat)
@@ -637,6 +807,11 @@ export class Canvas2DRenderer {
       `Utilization: ${(this.layout.utilizationRatio * 100).toFixed(1)}%`,
     ]
 
+    if (this.layout.stats.rowCount !== undefined && this.layout.stats.seatsPerRow !== undefined) {
+      info.push(`Rows: ${this.layout.stats.rowCount}`)
+      info.push(`Seats/Row: ${this.layout.stats.seatsPerRow}`)
+    }
+
     const fontSize = 12
     const lineHeight = 18
     const padding = 15
@@ -681,21 +856,24 @@ export class Canvas2DRenderer {
     // Get first seat for dimensions
     const firstSeat = this.layout.seats[0]
     if (firstSeat) {
-      lines.push(`• Seat: ${firstSeat.dimension.width.toFixed(2)}m × ${firstSeat.dimension.depth.toFixed(2)}m`)
+      lines.push(`• Seat: ${firstSeat.dimension.width.toFixed(2)}m x ${firstSeat.dimension.depth.toFixed(2)}m`)
     }
-    // Show aisles from configured width only (horizontal/vertical thickness)
-    const aisleWidth = this.layout.config?.aisles?.width
-    const aisleCount = (this.layout.config?.aisles?.horizontal || 0) + (this.layout.config?.aisles?.vertical || 0)
-    if (aisleWidth && aisleWidth > 0 && aisleCount > 0) {
-      lines.push(`• Aisle: ${aisleWidth.toFixed(2)}m (${aisleCount} configured)`)
+    if (this.layout.config?.aisles) {
+      const aisles = this.layout.config.aisles
+      lines.push(`• Side aisle: ${aisles.side.toFixed(2)}m`)
+      lines.push(`• Front aisle: ${aisles.front.toFixed(2)}m`)
+      lines.push(`• Back aisle: ${aisles.back.toFixed(2)}m`)
+      lines.push(`• Red carpet: ${aisles.carpet.toFixed(2)}m`)
     }
 
     for (const zone of this.layout.zones) {
       if (zone.type === ZoneType.AISLE) continue
+      if (zone.id.includes('reserved')) continue
       const width = zone.bounds.maxX - zone.bounds.minX
       const height = zone.bounds.maxY - zone.bounds.minY
-      const zoneLabel = zone.label || zone.type || 'Zone'
-      lines.push(`• ${zoneLabel}: ${width.toFixed(1)}m × ${height.toFixed(1)}m`)
+      const zoneLabel = this.getZoneDisplayLabel(zone.id, zone.label || zone.type || 'Zone')
+      if (!zoneLabel) continue
+      lines.push(`• ${zoneLabel}: ${width.toFixed(1)}m x ${height.toFixed(1)}m`)
     }
 
     // Calculate box size
@@ -773,10 +951,9 @@ export class Canvas2DRenderer {
   private drawLegend(): void {
     const theme = this.colors[this.renderOptions.theme || 'light']
     const items = [
-      { color: '#3b82f6', label: 'Empty Seat' },
-      { color: '#10b981', label: 'Occupied Seat' },
-      { color: theme.zone.stage, label: 'Stage' },
-      { color: theme.zone.bleacher, label: 'Bleacher Zone' },
+      { color: '#10b981', label: 'Graduates' },
+      { color: '#efad44', label: 'Stage' },
+      { color: '#f00505', label: 'Center Aisle' },
       { color: '#ededed', label: 'Aisle' }
     ]
 
@@ -948,6 +1125,42 @@ export class Canvas2DRenderer {
       throw new Error('No layout loaded')
     }
     return JSON.stringify(this.layout, null, 2)
+  }
+
+  exportPNG(exportWidth = 1800, exportHeight = 1200): string {
+    const previousOptions = { ...this.renderOptions }
+    const previousContext = { ...this.renderContext }
+    const previousCanvasWidth = this.canvas.width
+    const previousCanvasHeight = this.canvas.height
+
+    this.canvas.width = exportWidth
+    this.canvas.height = exportHeight
+    this.renderContext.width = exportWidth
+    this.renderContext.height = exportHeight
+    this.renderOptions = {
+      ...this.renderOptions,
+      showLabels: true,
+      showZones: true,
+      showLegend: true,
+      showMeasurements: true,
+      showWarnings: true
+    }
+
+    if (this.layout) {
+      this.fitLayoutInView(true)
+    }
+    this.render()
+    const dataUrl = this.canvas.toDataURL('image/png')
+
+    this.canvas.width = previousCanvasWidth
+    this.canvas.height = previousCanvasHeight
+    this.renderContext = previousContext
+    this.renderOptions = previousOptions
+    if (this.layout) {
+      this.render()
+    }
+
+    return dataUrl
   }
 }
 

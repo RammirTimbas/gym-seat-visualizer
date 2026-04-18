@@ -24,6 +24,11 @@ const state: AppState = {
  * Initialize the application
  */
 export function initializeApp(): void {
+  if (isPhoneDevice()) {
+    renderPhoneBlockedScreen()
+    return
+  }
+
   setupDOM()
   setupEventListeners()
   // Initialize empty canvas with renderer
@@ -42,11 +47,69 @@ export function initializeApp(): void {
   }
 }
 
+function isPhoneDevice(): boolean {
+  const ua = navigator.userAgent || navigator.vendor || ''
+  const isMobileUA = /Android|webOS|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua)
+  const narrowViewport = Math.min(window.innerWidth, window.innerHeight) < 768
+  return isMobileUA && narrowViewport
+}
+
+function renderPhoneBlockedScreen(): void {
+  const appContainer = document.getElementById('app')
+  if (!appContainer) return
+
+  appContainer.innerHTML = `
+    <div class="phone-block">
+      <div class="phone-block__card">
+        <h1>Desktop Only</h1>
+        <p>This seat planner is not available on phones.</p>
+        <p>Please use a tablet, laptop, or desktop browser.</p>
+      </div>
+    </div>
+  `
+
+  const style = document.createElement('style')
+  style.textContent = `
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f3f4f6;
+      color: #1f2937;
+    }
+    .phone-block {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background: linear-gradient(160deg, #eef2ff 0%, #f8fafc 100%);
+    }
+    .phone-block__card {
+      max-width: 360px;
+      padding: 28px 24px;
+      background: white;
+      border: 1px solid #dbeafe;
+      border-radius: 16px;
+      box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+      text-align: center;
+    }
+    .phone-block__card h1 {
+      margin: 0 0 12px;
+      font-size: 28px;
+    }
+    .phone-block__card p {
+      margin: 8px 0;
+      line-height: 1.5;
+      color: #475569;
+    }
+  `
+  document.head.appendChild(style)
+}
+
 /**
  * Setup DOM elements
  */
 function setupDOM(): void {
-  // ...existing code...
     // Add loading overlay
     const loadingDiv = document.createElement('div')
     loadingDiv.id = 'loading-overlay'
@@ -95,13 +158,25 @@ function setupDOM(): void {
             </div>
 
             <div class="control-group">
-              <label for="input-seat-size">Seat Size (meters):</label>
-              <input id="input-seat-size" type="number" min="0.2" step="0.05" placeholder="Seat size" style="width:100px;" />
+              <label>Seat Size (meters):</label>
+              <div style="display:flex; gap:8px;">
+                <input id="input-seat-width" type="number" min="0.2" step="0.05" placeholder="Width" style="width:70px;" />
+                <input id="input-seat-depth" type="number" min="0.2" step="0.05" placeholder="Depth" style="width:70px;" />
+              </div>
             </div>
 
             <div class="control-group">
-              <label for="input-seat-spacing">Seat Spacing (meters):</label>
-              <input id="input-seat-spacing" type="number" min="0" step="0.05" placeholder="Seat spacing" style="width:100px;" />
+              <label>Spacing (meters):</label>
+              <div style="display:flex; gap:8px;">
+                <div style="display:flex; flex-direction:column;">
+                  <span style="font-size:10px; color:#6b7280;">Horizontal</span>
+                  <input id="input-horizontal-spacing" type="number" min="0" step="0.05" placeholder="Horiz." style="width:70px;" />
+                </div>
+                <div style="display:flex; flex-direction:column;">
+                  <span style="font-size:10px; color:#6b7280;">Vertical</span>
+                  <input id="input-vertical-spacing" type="number" min="0" step="0.05" placeholder="Vert." style="width:70px;" />
+                </div>
+              </div>
             </div>
 
             <div class="control-group">
@@ -117,9 +192,10 @@ function setupDOM(): void {
             <div class="control-group">
               <label>Aisles:</label>
               <div style="display:flex; gap:8px;">
-                <input id="input-aisle-h" type="number" min="0" step="1" placeholder="Horizontal" style="width:60px;" />
-                <input id="input-aisle-v" type="number" min="0" step="1" placeholder="Vertical" style="width:60px;" />
-                <input id="input-aisle-width" type="number" min="0.5" step="0.1" placeholder="Width (m)" style="width:80px;" />
+                <input id="input-aisle-side" type="number" min="0" step="0.1" placeholder="Side" style="width:60px;" />
+                <input id="input-aisle-front" type="number" min="0" step="0.1" placeholder="Front" style="width:60px;" />
+                <input id="input-aisle-back" type="number" min="0" step="0.1" placeholder="Back" style="width:60px;" />
+                <input id="input-aisle-carpet" type="number" min="0" step="0.1" placeholder="Carpet" style="width:70px;" />
               </div>
             </div>
 
@@ -135,9 +211,29 @@ function setupDOM(): void {
                 <input id="bleachers-entrance-width" type="number" min="0.5" step="0.1" placeholder="Entrance (m)" style="width:92px;" />
               </div>
             </div>
+            <div class="control-group">
+              <label>Bottom Tables:</label>
+              <div style="display:flex; gap:8px; margin-top:6px;">
+                <input id="table-width" type="number" min="0" step="0.1" placeholder="Width" style="width:70px;" />
+                <input id="table-depth" type="number" min="0" step="0.1" placeholder="Depth" style="width:70px;" />
+              </div>
+              <p class="help-text">Adds tables below the back aisle at the bottom corners.</p>
+            </div>
+            <div class="control-group">
+              <label>Photobooth Section:</label>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <input id="photobooth-enabled" type="checkbox" /> Enable
+              </div>
+              <div style="display:flex; gap:8px; margin-top:6px;">
+                <input id="photobooth-width" type="number" min="0" step="0.1" placeholder="Width" style="width:70px;" />
+                <input id="photobooth-depth" type="number" min="0" step="0.1" placeholder="Depth" style="width:70px;" />
+              </div>
+              <p class="help-text">Placed at the bottom left corner, beside the table area.</p>
+            </div>
             <div class="button-group">
               <button id="btn-regenerate">Generate Layout</button>
               <button id="btn-export">Export Config</button>
+              <button id="btn-download-canvas">Download Canvas</button>
               <button id="btn-import">Import Config</button>
               <input id="file-import" type="file" accept=".json" style="display:none;" />
             </div>
@@ -161,7 +257,10 @@ function setupDOM(): void {
               </label>
               <label>
                 <input type="checkbox" id="show-warnings" checked /> Show Warnings
-              </label>  
+              </label>
+              <label>
+                <input type="checkbox" id="hide-empty-seats" /> Hide Empty Seats
+              </label>
             </div>
 
             <div class="control-group">
@@ -245,6 +344,13 @@ function setupEventListeners(): void {
     }
   })
 
+  document.getElementById('btn-download-canvas')?.addEventListener('click', () => {
+    if (state.renderer) {
+      const image = state.renderer.exportPNG()
+      downloadFile(image, `gym-layout-${Date.now()}.png`)
+    }
+  })
+
   document.getElementById('btn-import')?.addEventListener('click', () => {
     const fileInput = document.getElementById('file-import') as HTMLInputElement
     fileInput?.click()
@@ -299,6 +405,12 @@ function setupEventListeners(): void {
   document.getElementById('show-warnings')?.addEventListener('change', (e) => {
     if (state.renderer) {
       state.renderer.setRenderOptions({ showWarnings: (e.target as HTMLInputElement).checked })
+    }
+  })
+
+  document.getElementById('hide-empty-seats')?.addEventListener('change', (e) => {
+    if (state.renderer) {
+      state.renderer.setRenderOptions({ hideEmptySeats: (e.target as HTMLInputElement).checked })
     }
   })
 
@@ -409,17 +521,29 @@ function loadLayout(config: GymConfig): void {
         targetPeopleVal = layout.seats.length
       }
       const n = Math.min(layout.seats.length, targetPeopleVal)
-      const indices = Array.from({ length: layout.seats.length }, (_, i) => i)
-      for (let i = indices.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1))
-        ;[indices[i], indices[j]] = [indices[j], indices[i]]
-      }
-      layout.seats.forEach((s: any) => {
-        s.metadata.occupied = false
+
+      const centerX = layout.config.width / 2
+
+      const leftSeats = layout.seats.filter((s: any) => s.position.x < centerX)
+      const rightSeats = layout.seats.filter((s: any) => s.position.x >= centerX)
+      const half = Math.floor(n / 2)
+      const remainder = n % 2
+      const leftTarget = half
+      const rightTarget = half + remainder
+
+      // // Assign occupancy sequentially (Front to Back)
+      // layout.seats.forEach((s: any, index: number) => {
+      //   s.metadata.occupied = index < n
+      // })
+
+      leftSeats.forEach((s: any, i: number) => {
+        s.metadata.occupied = i < leftTarget
       })
-      for (let i = 0; i < n; i++) {
-        layout.seats[indices[i]].metadata.occupied = true
-      }
+
+      rightSeats.forEach((s: any, i: number) => {
+        s.metadata.occupied = i < rightTarget
+      })
+
       layout.stats.seatsByOccupancy.occupied = n
       layout.stats.seatsByOccupancy.empty = layout.seats.length - n
       layout.occupiedSeats = n
@@ -510,14 +634,22 @@ function buildLayoutAlert(
   requestedPeople: number | null
 ): LayoutAlert {
   const tips: string[] = []
-  const seatSize = config.seatTypes?.[0]?.width ?? 0.5
+  const seatWidth = config.seatTypes?.[0]?.width ?? 0.5
+  const seatDepth = config.seatTypes?.[0]?.depth ?? seatWidth
 
   if (requestedPeople && requestedPeople > layout.seats.length) {
-    tips.push(`Decrease seat spacing below ${config.seatSpacing.toFixed(2)}m.`)
-    tips.push(`Decrease seat size below ${seatSize.toFixed(2)}m if the actual chairs allow it.`)
+    tips.push(`Decrease horizontal spacing below ${config.horizontalSpacing.toFixed(2)}m.`)
+    tips.push(`Decrease vertical spacing below ${config.verticalSpacing.toFixed(2)}m.`)
+    tips.push(`Decrease seat size below ${seatWidth.toFixed(2)}m x ${seatDepth.toFixed(2)}m if the actual chairs allow it.`)
 
-    if (config.aisles.width > 0.5) {
-      tips.push(`Reduce aisle width below ${config.aisles.width.toFixed(2)}m if your requirements permit it.`)
+    const widestAisle = Math.max(
+      config.aisles.side,
+      config.aisles.front,
+      config.aisles.back,
+      config.aisles.carpet
+    )
+    if (widestAisle > 0.5) {
+      tips.push(`Reduce one or more aisle widths below ${widestAisle.toFixed(2)}m if your requirements permit it.`)
     }
 
     if ((config.zones || []).some((zone: any) => zone.type === 'stage')) {
@@ -528,7 +660,7 @@ function buildLayoutAlert(
       tips.push('Increase bleacher depth, reduce bleacher aisles, or add more bleacher steps.')
     }
   } else {
-    tips.push(`Decrease seat spacing below ${config.seatSpacing.toFixed(2)}m for a denser plan.`)
+    tips.push(`Decrease spacing for a denser plan.`)
     tips.push('Lower the target people count if the current clearances must stay the same.')
   }
 
@@ -544,17 +676,49 @@ function setInputsFromConfig(config: any): void {
   (document.getElementById('input-width') as HTMLInputElement).value = config.width
   ;(document.getElementById('input-length') as HTMLInputElement).value = config.length
   ;(document.getElementById('input-height') as HTMLInputElement).value = config.height || ''
-  ;(document.getElementById('input-seat-size') as HTMLInputElement).value = config.seatTypes?.[0]?.width || ''
-  ;(document.getElementById('input-seat-spacing') as HTMLInputElement).value = config.seatSpacing ?? ''
+  ;(document.getElementById('input-seat-width') as HTMLInputElement).value = config.seatTypes?.[0]?.width || ''
+  ;(document.getElementById('input-seat-depth') as HTMLInputElement).value = config.seatTypes?.[0]?.depth || ''
+  ;(document.getElementById('input-horizontal-spacing') as HTMLInputElement).value = config.horizontalSpacing ?? ''
+  ;(document.getElementById('input-vertical-spacing') as HTMLInputElement).value = config.verticalSpacing ?? ''
   ;(document.getElementById('shape-select') as HTMLSelectElement).value = config.shape
-  ;(document.getElementById('input-aisle-h') as HTMLInputElement).value = config.aisles.horizontal
-  ;(document.getElementById('input-aisle-v') as HTMLInputElement).value = config.aisles.vertical
-  ;(document.getElementById('input-aisle-width') as HTMLInputElement).value = config.aisles.width
+  ;(document.getElementById('input-aisle-side') as HTMLInputElement).value = config.aisles?.side ?? 0
+  ;(document.getElementById('input-aisle-front') as HTMLInputElement).value = config.aisles?.front ?? 0
+  ;(document.getElementById('input-aisle-back') as HTMLInputElement).value = config.aisles?.back ?? 0
+  ;(document.getElementById('input-aisle-carpet') as HTMLInputElement).value = config.aisles?.carpet ?? 0
   ;(document.getElementById('bleachers-enabled') as HTMLInputElement).checked = config.bleachers?.enabled || false
   ;(document.getElementById('bleachers-steps') as HTMLInputElement).value = config.bleachers?.numberOfSteps || ''
   ;(document.getElementById('bleachers-aisles') as HTMLInputElement).value = config.bleachers?.aisleCount ?? 0
   ;(document.getElementById('bleachers-width') as HTMLInputElement).value = config.bleachers?.width || ''
   ;(document.getElementById('bleachers-entrance-width') as HTMLInputElement).value = config.bleachers?.entranceWidth ?? 2.5
+
+  const leftTable = config.zones?.find((z: any) => z.id === 'table-left')
+  if (leftTable) {
+    ;(document.getElementById('table-width') as HTMLInputElement).value = (
+      leftTable.bounds.maxX - leftTable.bounds.minX
+    ).toFixed(2)
+    ;(document.getElementById('table-depth') as HTMLInputElement).value = (
+      leftTable.bounds.maxY - leftTable.bounds.minY
+    ).toFixed(2)
+  } else {
+    ;(document.getElementById('table-width') as HTMLInputElement).value = ''
+    ;(document.getElementById('table-depth') as HTMLInputElement).value = ''
+  }
+
+  const photobooth = config.zones?.find((z: any) => z.id === 'photobooth')
+  if (photobooth) {
+    ;(document.getElementById('photobooth-enabled') as HTMLInputElement).checked = true
+    ;(document.getElementById('photobooth-width') as HTMLInputElement).value = (
+      photobooth.bounds.maxX - photobooth.bounds.minX
+    ).toFixed(2)
+    ;(document.getElementById('photobooth-depth') as HTMLInputElement).value = (
+      photobooth.bounds.maxY - photobooth.bounds.minY
+    ).toFixed(2)
+  } else {
+    ;(document.getElementById('photobooth-enabled') as HTMLInputElement).checked = false
+    ;(document.getElementById('photobooth-width') as HTMLInputElement).value = ''
+    ;(document.getElementById('photobooth-depth') as HTMLInputElement).value = ''
+  }
+
   // Set stage dimensions from zones
   const stage = config.zones?.find((z: any) => z.type === 'stage')
   if (stage) {
@@ -586,10 +750,10 @@ function updateConfigFromInputs(): void {
       { type: SeatType.MONOBLOCK, width: 0.5, depth: 0.5, height: 0.4 }
     ],
     zones: [],
-    aisles: { horizontal: 1, vertical: 1, width: 1 },
+    aisles: { side: 1, front: 1, back: 1, carpet: 2 },
     bleachers: { enabled: false, width: 2, numberOfSteps: 4, stepHeight: 0.35, stepDepth: 0.6, aisleCount: 2, entranceWidth: 2.5 },
-    seatSpacing: 0.1,
-    rowSpacing: 0.3,
+    horizontalSpacing: 0.1,
+    verticalSpacing: 0.3,
     minMargin: 0.5,
     preferredDensity: 'comfortable'
   }
@@ -605,8 +769,10 @@ function updateConfigFromInputs(): void {
   const width = parseFloat((document.getElementById('input-width') as HTMLInputElement).value)
   const length = parseFloat((document.getElementById('input-length') as HTMLInputElement).value)
   const height = parseFloat((document.getElementById('input-height') as HTMLInputElement).value)
-  const seatSize = parseFloat((document.getElementById('input-seat-size') as HTMLInputElement).value)
-  const seatSpacing = parseFloat((document.getElementById('input-seat-spacing') as HTMLInputElement).value)
+  const seatWidth = parseFloat((document.getElementById('input-seat-width') as HTMLInputElement).value)
+  const seatDepth = parseFloat((document.getElementById('input-seat-depth') as HTMLInputElement).value)
+  const horizontalSpacing = parseFloat((document.getElementById('input-horizontal-spacing') as HTMLInputElement).value)
+  const verticalSpacing = parseFloat((document.getElementById('input-vertical-spacing') as HTMLInputElement).value)
   config.width = width
   config.length = length
   config.height = height
@@ -615,10 +781,10 @@ function updateConfigFromInputs(): void {
   const stageWidth = parseFloat((document.getElementById('input-stage-width') as HTMLInputElement).value)
   const stageLength = parseFloat((document.getElementById('input-stage-length') as HTMLInputElement).value)
   const hasStageInputs = !isNaN(stageWidth) && stageWidth > 0 && !isNaN(stageLength) && stageLength > 0
-  
+
   if (hasStageInputs) {
-    if (stageWidth > config.width - 2 * config.minMargin) errors.push('Stage width must fit within gym width')
-    if (stageLength > config.length - 2 * config.minMargin) errors.push('Stage length must fit within gym length')
+    if (stageWidth <= 0) errors.push('Stage width must be a positive number')
+    if (stageLength <= 0) errors.push('Stage length must be a positive number')
     if (errors.length === 0) {
       config.zones.push({
         id: 'stage',
@@ -627,8 +793,8 @@ function updateConfigFromInputs(): void {
         bounds: {
           minX: (config.width - stageWidth) / 2,
           maxX: (config.width + stageWidth) / 2,
-          minY: config.minMargin,
-          maxY: config.minMargin + stageLength
+          minY: -stageLength,
+          maxY: 0
         }
       })
     }
@@ -638,25 +804,54 @@ function updateConfigFromInputs(): void {
 
   // (width, length, height already parsed and assigned above)
   const shape = (document.getElementById('shape-select') as HTMLSelectElement).value
-  const aisleH = parseInt((document.getElementById('input-aisle-h') as HTMLInputElement).value, 10)
-  const aisleV = parseInt((document.getElementById('input-aisle-v') as HTMLInputElement).value, 10)
-  const aisleWidth = parseFloat((document.getElementById('input-aisle-width') as HTMLInputElement).value)
+  const aisleSide = parseFloat((document.getElementById('input-aisle-side') as HTMLInputElement).value)
+  const aisleFront = parseFloat((document.getElementById('input-aisle-front') as HTMLInputElement).value)
+  const aisleBack = parseFloat((document.getElementById('input-aisle-back') as HTMLInputElement).value)
+  const aisleCarpet = parseFloat((document.getElementById('input-aisle-carpet') as HTMLInputElement).value)
   const bleachersEnabled = (document.getElementById('bleachers-enabled') as HTMLInputElement).checked
   const bleachersSteps = parseInt((document.getElementById('bleachers-steps') as HTMLInputElement).value, 10)
   const bleachersAisles = parseInt((document.getElementById('bleachers-aisles') as HTMLInputElement).value, 10)
   const bleachersWidth = parseFloat((document.getElementById('bleachers-width') as HTMLInputElement).value)
   const bleachersEntranceWidth = parseFloat((document.getElementById('bleachers-entrance-width') as HTMLInputElement).value)
 
+  const tableWidth = parseFloat((document.getElementById('table-width') as HTMLInputElement).value)
+  const tableDepth = parseFloat((document.getElementById('table-depth') as HTMLInputElement).value)
+
+  const photoboothEnabled = (document.getElementById('photobooth-enabled') as HTMLInputElement).checked
+  const photoboothWidth = parseFloat((document.getElementById('photobooth-width') as HTMLInputElement).value)
+  const photoboothDepth = parseFloat((document.getElementById('photobooth-depth') as HTMLInputElement).value)
+
   // (errors already declared at top)
   if (isNaN(width) || width <= 0) errors.push('Width must be a positive number')
   if (isNaN(length) || length <= 0) errors.push('Length must be a positive number')
   if (height && (isNaN(height) || height <= 0)) errors.push('Height must be positive if specified')
-  if (isNaN(seatSize) || seatSize < 0.2) errors.push('Seat size must be at least 0.2m')
-  if (isNaN(seatSpacing) || seatSpacing < 0) errors.push('Seat spacing must be 0 or more')
+  if (isNaN(seatWidth) || seatWidth < 0.2) errors.push('Seat width must be at least 0.2m')
+  if (isNaN(seatDepth) || seatDepth < 0.2) errors.push('Seat depth must be at least 0.2m')
+  if (isNaN(horizontalSpacing) || horizontalSpacing < 0) errors.push('Horizontal spacing must be 0 or more')
+  if (isNaN(verticalSpacing) || verticalSpacing < 0) errors.push('Vertical spacing must be 0 or more')
   if (!['rectangle','square','oval','circle'].includes(shape)) errors.push('Invalid shape')
-  if (isNaN(aisleH) || aisleH < 0) errors.push('Horizontal aisles must be 0 or more')
-  if (isNaN(aisleV) || aisleV < 0) errors.push('Vertical aisles must be 0 or more')
-  if (isNaN(aisleWidth) || aisleWidth < 0.5) errors.push('Aisle width must be at least 0.5m')
+  if (isNaN(aisleSide) || aisleSide < 0) errors.push('Side aisle width must be 0 or more')
+  if (isNaN(aisleFront) || aisleFront < 0) errors.push('Front aisle width must be 0 or more')
+  if (isNaN(aisleBack) || aisleBack < 0) errors.push('Back aisle width must be 0 or more')
+  if (isNaN(aisleCarpet) || aisleCarpet < 0) errors.push('Red carpet width must be 0 or more')
+  if (!isNaN(width) && aisleSide * 2 >= width) errors.push('Side aisles are too wide for the gym')
+  if (!isNaN(width) && aisleCarpet >= width - aisleSide * 2) errors.push('Red carpet must leave floor space beside it')
+  if (!isNaN(length) && aisleFront + aisleBack >= length) errors.push('Front and back aisles are too deep for the gym')
+
+  const hasTables = !isNaN(tableWidth) && tableWidth > 0 && !isNaN(tableDepth) && tableDepth > 0
+  if (hasTables) {
+    if (tableWidth < 0 || tableDepth < 0) errors.push('Table dimensions must be 0 or more')
+    if (!isNaN(width) && tableWidth * 2 >= width) errors.push('Tables are too wide to fit on both bottom sides')
+    if (!isNaN(length) && tableDepth >= length) errors.push('Table depth is too large for the gym')
+  }
+
+  if (photoboothEnabled) {
+    if (isNaN(photoboothWidth) || photoboothWidth <= 0) errors.push('Photobooth width must be positive')
+    if (isNaN(photoboothDepth) || photoboothDepth <= 0) errors.push('Photobooth depth must be positive')
+    if (!isNaN(width) && photoboothWidth >= width) errors.push('Photobooth is too wide')
+    if (!isNaN(length) && photoboothDepth >= length) errors.push('Photobooth is too deep')
+  }
+
   if (bleachersEnabled) {
     if (isNaN(bleachersSteps) || bleachersSteps < 1) errors.push('Bleacher steps must be 1 or more')
     if (isNaN(bleachersAisles) || bleachersAisles < 0) errors.push('Bleacher aisles must be 0 or more')
@@ -678,16 +873,17 @@ function updateConfigFromInputs(): void {
   }
 
   config.width = width
-
   config.length = length
   config.height = height
-  config.seatTypes[0].width = seatSize
-  config.seatTypes[0].depth = seatSize
-  config.seatSpacing = seatSpacing
+  config.seatTypes[0].width = seatWidth
+  config.seatTypes[0].depth = seatDepth
+  config.horizontalSpacing = horizontalSpacing
+  config.verticalSpacing = verticalSpacing
   config.shape = shape
-  config.aisles.horizontal = aisleH
-  config.aisles.vertical = aisleV
-  config.aisles.width = aisleWidth
+  config.aisles.side = aisleSide
+  config.aisles.front = aisleFront
+  config.aisles.back = aisleBack
+  config.aisles.carpet = aisleCarpet
   config.bleachers = config.bleachers || {}
   config.bleachers.enabled = bleachersEnabled
   config.bleachers.numberOfSteps = Number.isNaN(bleachersSteps) ? config.bleachers.numberOfSteps : bleachersSteps
@@ -696,6 +892,86 @@ function updateConfigFromInputs(): void {
     config.bleachers.numberOfSteps > 0 ? config.bleachers.width / config.bleachers.numberOfSteps : config.bleachers.width
   config.bleachers.aisleCount = Number.isNaN(bleachersAisles) ? 0 : bleachersAisles
   config.bleachers.entranceWidth = Number.isNaN(bleachersEntranceWidth) ? 2.5 : bleachersEntranceWidth
+
+  if (hasTables) {
+    const sideClearance = config.minMargin + config.aisles.side
+    const carpetHalfWidth = config.aisles.carpet / 2
+    const leftSectionMinX = sideClearance
+    const leftSectionMaxX = config.width / 2 - carpetHalfWidth
+    const rightSectionMinX = config.width / 2 + carpetHalfWidth
+    const rightSectionMaxX = config.width - sideClearance
+    const leftSectionCenterX = (leftSectionMinX + leftSectionMaxX) / 2
+    const rightSectionCenterX = (rightSectionMinX + rightSectionMaxX) / 2
+    const leftMinX = leftSectionCenterX - tableWidth / 2
+    const leftMaxX = leftSectionCenterX + tableWidth / 2
+    const rightMinX = rightSectionCenterX - tableWidth / 2
+    const rightMaxX = rightSectionCenterX + tableWidth / 2
+
+    // Moved tables below the back aisle (at the very bottom of floor)
+    const bottomMaxY = config.length
+    const bottomMinY = bottomMaxY - tableDepth
+
+    config.zones.push(
+      {
+        id: 'table-left',
+        type: 'blocked',
+        label: 'Table',
+        bounds: {
+          minX: leftMinX,
+          maxX: leftMaxX,
+          minY: bottomMinY,
+          maxY: bottomMaxY
+        }
+      },
+      {
+        id: 'table-left-reserved',
+        type: 'blocked',
+        bounds: {
+          minX: leftSectionMinX,
+          maxX: leftSectionMaxX,
+          minY: bottomMinY,
+          maxY: bottomMaxY
+        }
+      },
+      {
+        id: 'table-right',
+        type: 'blocked',
+        label: 'Table',
+        bounds: {
+          minX: rightMinX,
+          maxX: rightMaxX,
+          minY: bottomMinY,
+          maxY: bottomMaxY
+        }
+      },
+      {
+        id: 'table-right-reserved',
+        type: 'blocked',
+        bounds: {
+          minX: rightSectionMinX,
+          maxX: rightSectionMaxX,
+          minY: bottomMinY,
+          maxY: bottomMaxY
+        }
+      }
+    )
+  }
+
+  if (photoboothEnabled) {
+    // Positioned beside the left table area at the bottom left
+    const sideClearance = config.minMargin + config.aisles.side
+    config.zones.push({
+      id: 'photobooth',
+      type: 'blocked',
+      label: 'Photo Booth',
+      bounds: {
+        minX: sideClearance,
+        maxX: sideClearance + photoboothWidth,
+        minY: config.length - photoboothDepth,
+        maxY: config.length
+      }
+    })
+  }
 
 
   loadLayout(config)
@@ -734,12 +1010,11 @@ function updateStats(layout: any): void {
     const maxY = Math.max(...bleacherSeats.map((s: any) => s.position.y + s.dimension.depth / 2))
     mHtml += `<div class="stat-item"><span class="stat-label">Bleacher:</span><span class="stat-value">${(maxX - minX).toFixed(2)}m × ${(maxY - minY).toFixed(2)}m</span></div>`
   }
-  // Aisles - show configured aisle width (consistent regardless of stage splits)
-  if (layout.config?.aisles?.width && layout.config.aisles.width > 0) {
-    const totalAisles = (layout.config.aisles.horizontal || 0) + (layout.config.aisles.vertical || 0)
-    if (totalAisles > 0) {
-      mHtml += `<div class="stat-item"><span class="stat-label">Aisle:</span><span class="stat-value">${layout.config.aisles.width.toFixed(2)}m (${totalAisles} configured)</span></div>`
-    }
+  if (layout.config?.aisles) {
+    const { side, front, back, carpet } = layout.config.aisles
+    mHtml += `<div class="stat-item"><span class="stat-label">Side Aisles:</span><span class="stat-value">${side.toFixed(2)}m each</span></div>`
+    mHtml += `<div class="stat-item"><span class="stat-label">Front/Back:</span><span class="stat-value">${front.toFixed(2)}m / ${back.toFixed(2)}m</span></div>`
+    mHtml += `<div class="stat-item"><span class="stat-label">Red Carpet:</span><span class="stat-value">${carpet.toFixed(2)}m</span></div>`
   }
   measurementsContainer.innerHTML = mHtml || '<p>No measurements available</p>'
 }
@@ -750,6 +1025,13 @@ function updateStats(layout: any): void {
 function downloadJSON(jsonString: string, filename: string): void {
   const link = document.createElement('a')
   link.href = URL.createObjectURL(new Blob([jsonString], { type: 'application/json' }))
+  link.download = filename
+  link.click()
+}
+
+function downloadFile(url: string, filename: string): void {
+  const link = document.createElement('a')
+  link.href = url
   link.download = filename
   link.click()
 }
