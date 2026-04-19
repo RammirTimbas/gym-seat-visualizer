@@ -583,7 +583,6 @@ function loadLayout(config: GymConfig): void {
       // Separate Faculty and Ordinary seats
       const facultySeats = layout.seats.filter((s: any) => s.metadata.vip)
       const ordinarySeats = layout.seats.filter((s: any) => !s.metadata.vip && !s.metadata.bleacher)
-      const bleacherSeats = layout.seats.filter((s: any) => s.metadata.bleacher)
 
       // Faculty are always occupied if they exist
       facultySeats.forEach((s: any) => { s.metadata.occupied = true })

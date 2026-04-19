@@ -135,31 +135,6 @@ export class LayoutGenerator {
     ]
   }
 
-  private calculateDistributedCenters(
-    startPosition: number,
-    endPosition: number,
-    laneWidth: number,
-    laneCount: number
-  ): number[] {
-    if (laneCount <= 0 || laneWidth <= 0) return []
-
-    const totalSpace = endPosition - startPosition
-    const totalLaneSpace = laneWidth * laneCount
-    if (totalSpace <= totalLaneSpace) return []
-
-    const sectionWidth = (totalSpace - totalLaneSpace) / (laneCount + 1)
-    const positions: number[] = []
-    let currentPosition = startPosition
-
-    for (let i = 0; i < laneCount; i++) {
-      currentPosition += sectionWidth
-      positions.push(currentPosition + laneWidth / 2)
-      currentPosition += laneWidth
-    }
-
-    return positions
-  }
-
   private getBleacherDepth(): number {
     if (!this.config.bleachers?.enabled) return 0
     return Math.max(0, this.config.bleachers.width)
@@ -242,10 +217,6 @@ export class LayoutGenerator {
     const maxY = this.config.length - this.config.minMargin - bleacherDepth - this.config.aisles.back - bottomBlocked
 
     return { minX, maxX, minY, maxY }
-  }
-
-  private isVerticalBleacherZone(zone: Zone): boolean {
-    return zone.id === 'bleacher-left' || zone.id === 'bleacher-right'
   }
 
   /**
@@ -387,63 +358,6 @@ export class LayoutGenerator {
         zone.bounds.maxX - zone.bounds.minX > 0.1 &&
         zone.bounds.maxY - zone.bounds.minY > 0.1
     )
-  }
-
-  private distributeBleacherAisles(zones: Zone[]): number[][] {
-    const totalAisles = Math.max(0, this.config.bleachers?.aisleCount || 0)
-    const lengths = zones.map(zone =>
-      this.isVerticalBleacherZone(zone)
-        ? zone.bounds.maxY - zone.bounds.minY
-        : zone.bounds.maxX - zone.bounds.minX
-    )
-
-    if (totalAisles === 0 || lengths.every(length => length <= 0)) {
-      return zones.map(() => [])
-    }
-
-    const totalLength = lengths.reduce((sum, length) => sum + length, 0)
-    const baseCounts = lengths.map(length => Math.floor((length / totalLength) * totalAisles))
-    let assigned = baseCounts.reduce((sum, count) => sum + count, 0)
-
-    const order = lengths
-      .map((length, index) => ({
-        index,
-        remainder: (length / totalLength) * totalAisles - baseCounts[index]
-      }))
-      .sort((a, b) => b.remainder - a.remainder)
-
-    for (let i = 0; assigned < totalAisles && i < order.length; i++, assigned++) {
-      baseCounts[order[i].index]++
-    }
-
-    return zones.map((zone, index) => {
-      const count = baseCounts[index]
-      if (count <= 0) return []
-
-      const start = this.isVerticalBleacherZone(zone) ? zone.bounds.minY : zone.bounds.minX
-      const end = this.isVerticalBleacherZone(zone) ? zone.bounds.maxY : zone.bounds.maxX
-      return this.calculateDistributedCenters(start, end, this.getPrimaryAisleWidth(), count)
-    })
-  }
-
-  private getBleacherFixedCoordinate(zone: Zone, stepDepth: number, stepIndex: number): number {
-    if (zone.id === 'bleacher-left') {
-      return zone.bounds.minX + stepDepth * (stepIndex + 0.5)
-    }
-    if (zone.id === 'bleacher-right') {
-      return zone.bounds.maxX - stepDepth * (stepIndex + 0.5)
-    }
-
-    return zone.bounds.maxY - stepDepth * (stepIndex + 0.5)
-  }
-
-  private overlapsBleacherAisle(
-    axisCoord: number,
-    aisleCenters: number[],
-    aisleWidth: number,
-    seatWidth: number
-  ): boolean {
-    return aisleCenters.some(center => Math.abs(axisCoord - center) < (aisleWidth + seatWidth) / 2)
   }
 
   /**
@@ -838,15 +752,6 @@ export class LayoutGenerator {
       default:
         return pointInPolygon({ x, y }, this.getFloorPolygon())
     }
-  }
-
-  private getPrimaryAisleWidth(): number {
-    return Math.max(
-      this.config.aisles.side,
-      this.config.aisles.front,
-      this.config.aisles.back,
-      this.config.aisles.carpet
-    )
   }
 
   /**

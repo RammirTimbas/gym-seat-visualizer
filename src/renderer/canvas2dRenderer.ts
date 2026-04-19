@@ -28,7 +28,9 @@ export class Canvas2DRenderer {
         vip: '#f59e0b',
         blocked: '#9ca3af',
         aisle: '#f3f4f6',
-        bleacher: '#fdba74'
+        bleacher: '#fdba74',
+        medical: '#ec4899',
+        photobooth: '#8b5cf6'
       },
       text: '#1f2937',
       border: '#d1d5db'
@@ -45,7 +47,9 @@ export class Canvas2DRenderer {
         vip: '#fcd34d',
         blocked: '#6b7280',
         aisle: '#111827',
-        bleacher: '#f59e0b'
+        bleacher: '#f59e0b',
+        medical: '#f472b6',
+        photobooth: '#a78bfa'
       },
       text: '#f9fafb',
       border: '#4b5563'
@@ -439,7 +443,13 @@ export class Canvas2DRenderer {
       const height = y2 - y1
 
       // Draw zone
-      const zoneColor = theme.zone[zone.type as keyof typeof theme.zone]
+      let zoneColor = theme.zone[zone.type as keyof typeof theme.zone]
+      if (zone.id.includes('table')) {
+        zoneColor = (theme.zone as any).medical
+      } else if (zone.id === 'photobooth') {
+        zoneColor = (theme.zone as any).photobooth
+      }
+
       this.ctx.fillStyle = zoneColor
       this.ctx.globalAlpha = 0.3
       this.ctx.fillRect(x1, y1, width, height)
@@ -958,6 +968,8 @@ export class Canvas2DRenderer {
       { color: '#10b981', label: 'Graduates' },
       { color: theme.seatVip, label: 'Faculty' },
       { color: '#efad44', label: 'Stage' },
+      { color: (theme.zone as any).medical, label: 'Medical Team' },
+      { color: (theme.zone as any).photobooth, label: 'Photo Booth' },
       { color: '#f00505', label: 'Center Aisle' },
       { color: '#ededed', label: 'Aisle' }
     ]
