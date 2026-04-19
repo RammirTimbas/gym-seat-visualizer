@@ -259,7 +259,7 @@ function setupDOM(): void {
                 <input type="checkbox" id="show-warnings" checked /> Show Warnings
               </label>
               <label>
-                <input type="checkbox" id="hide-empty-seats" /> Hide Empty Seats
+                <input type="checkbox" id="show-empty-seats" checked /> Show Empty Seats (Blue)
               </label>
             </div>
 
@@ -408,9 +408,9 @@ function setupEventListeners(): void {
     }
   })
 
-  document.getElementById('hide-empty-seats')?.addEventListener('change', (e) => {
+  document.getElementById('show-empty-seats')?.addEventListener('change', (e) => {
     if (state.renderer) {
-      state.renderer.setRenderOptions({ hideEmptySeats: (e.target as HTMLInputElement).checked })
+      state.renderer.setRenderOptions({ hideEmptySeats: !(e.target as HTMLInputElement).checked })
     }
   })
 

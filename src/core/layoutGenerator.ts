@@ -74,14 +74,11 @@ export class LayoutGenerator {
     // Reserve zones
     this.reserveZones()
     // ... rest of generate logic ...
-    // Place bleachers and seats (all available)
+    // Place bleachers and seats (fill all available space)
     let peopleRemaining = Number.POSITIVE_INFINITY
-    if (this.config.targetPeople && this.config.targetPeople > 0) {
-        peopleRemaining = this.config.targetPeople
-    }
 
     if (this.config.bleachers?.enabled) {
-      peopleRemaining -= this.placeBleachers(peopleRemaining)
+      this.placeBleachers(peopleRemaining)
     }
     switch (this.config.shape) {
       case GymnasiumShape.RECTANGLE:
@@ -541,8 +538,65 @@ export class LayoutGenerator {
     seatType: typeof this.config.seatTypes[0],
     peopleToAllocate: number
   ): number {
-    let positionInRow = 0
+    const carpetWidth = this.config.aisles.carpet
+    const centerX = this.config.width / 2
 
+    // If we have a center carpet, we split the row into two sections
+    if (carpetWidth > 0) {
+      const leftSectionEndX = centerX - carpetWidth / 2
+      const rightSectionStartX = centerX + carpetWidth / 2
+      
+      const leftWidth = leftSectionEndX - startX
+      const rightWidth = (startX + usableWidth) - rightSectionStartX
+      
+      const seatsPerSectionLeft = Math.floor(
+        (leftWidth + this.config.horizontalSpacing) / (seatType.width + this.config.horizontalSpacing)
+      )
+      const seatsPerSectionRight = Math.floor(
+        (rightWidth + this.config.horizontalSpacing) / (seatType.width + this.config.horizontalSpacing)
+      )
+      
+      // For even distribution, we take the minimum of both sides
+      const seatsPerSection = Math.min(seatsPerSectionLeft, seatsPerSectionRight)
+      
+      const sectionRowWidth = seatsPerSection * seatType.width + (seatsPerSection - 1) * this.config.horizontalSpacing
+      
+      let placedInRow = 0
+      let positionInRow = 0
+
+      // Place Left Section
+      const leftRowStartX = leftSectionEndX - sectionRowWidth
+      for (let i = 0; i < seatsPerSection; i++) {
+        if (peopleToAllocate > 0 && placedInRow >= peopleToAllocate) break
+        const seatX = leftRowStartX + i * (seatType.width + this.config.horizontalSpacing) + seatType.width / 2
+        if (!this.isPositionBlocked(seatX, baseY, seatType)) {
+          const seat = this.createSeat(seatX, baseY, rowNumber, positionInRow, seatType)
+          this.seats.push(seat)
+          this.markAreaAsUsed(seatX, baseY, seatType.width, seatType.depth)
+          placedInRow++
+          positionInRow++
+        }
+      }
+
+      // Place Right Section
+      const rightRowStartX = rightSectionStartX
+      for (let i = 0; i < seatsPerSection; i++) {
+        if (peopleToAllocate > 0 && placedInRow >= peopleToAllocate) break
+        const seatX = rightRowStartX + i * (seatType.width + this.config.horizontalSpacing) + seatType.width / 2
+        if (!this.isPositionBlocked(seatX, baseY, seatType)) {
+          const seat = this.createSeat(seatX, baseY, rowNumber, positionInRow, seatType)
+          this.seats.push(seat)
+          this.markAreaAsUsed(seatX, baseY, seatType.width, seatType.depth)
+          placedInRow++
+          positionInRow++
+        }
+      }
+      
+      return placedInRow
+    }
+
+    let positionInRow = 0
+    // ... rest of the original logic for no carpet ...
     // Use fixedSeatsPerRow if provided, otherwise calculate max possible
     const seatsPerRow = this.config.fixedSeatsPerRow ?? Math.floor(
       (usableWidth + this.config.horizontalSpacing) / (seatType.width + this.config.horizontalSpacing)
@@ -562,8 +616,6 @@ export class LayoutGenerator {
         rowCenterX + i * (seatType.width + this.config.horizontalSpacing) + seatType.width / 2
       const seatY = baseY
 
-      // If we have fixedSeatsPerRow, we might want to be less strict about "isPositionBlocked"
-      // or at least report if we couldn't fit them. For now, we keep the safety check.
       if (!this.isPositionBlocked(seatX, seatY, seatType)) {
         const seat = this.createSeat(seatX, seatY, rowNumber, positionInRow, seatType)
         this.seats.push(seat)
