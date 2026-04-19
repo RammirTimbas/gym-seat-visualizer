@@ -80,6 +80,10 @@ export class LayoutGenerator {
     if (this.config.bleachers?.enabled) {
       this.placeBleachers(peopleRemaining)
     }
+
+    // Place faculty seats
+    this.placeFacultySeats()
+
     switch (this.config.shape) {
       case GymnasiumShape.RECTANGLE:
       case GymnasiumShape.SQUARE:
@@ -167,11 +171,54 @@ export class LayoutGenerator {
     return 0;
   }
 
+  private getFacultyWidth(): number {
+    const facultyCount = this.config.facultyCount || 0
+    if (facultyCount <= 0) return 0
+
+    const layout = this.getFacultyLayout()
+    if (!layout) return 0
+
+    const seatType = this.config.seatTypes[0]
+    return layout.columnsPerSide * (seatType.width + this.config.horizontalSpacing)
+  }
+
+  private getFacultyLayout() {
+    const facultyCount = this.config.facultyCount || 0
+    if (facultyCount <= 0) return null
+
+    const seatType = this.config.seatTypes[0]
+    const bleacherDepth = this.getBleacherDepth()
+    const bottomBlocked = this.getBottomBlockedDepth()
+    
+    // Usable length for faculty rows (same as floor seats)
+    const minY = Math.max(this.config.minMargin, this.getStageMaxY()) + this.config.aisles.front
+    const maxY = this.config.length - this.config.minMargin - bleacherDepth - this.config.aisles.back - bottomBlocked
+    const usableLength = maxY - minY
+
+    if (usableLength <= 0) return null
+
+    const rowSpacing = seatType.depth + this.config.verticalSpacing
+    const estimatedRows = Math.floor((usableLength + this.config.verticalSpacing) / rowSpacing)
+    
+    if (estimatedRows <= 0) return null
+
+    const facultyPerSide = Math.ceil(facultyCount / 2)
+    const columnsPerSide = Math.ceil(facultyPerSide / estimatedRows)
+
+    return {
+      estimatedRows,
+      columnsPerSide,
+      facultyPerSide,
+      minY
+    }
+  }
+
   private getUsableFloorBounds() {
     const bleacherDepth = this.getBleacherDepth()
     const bottomBlocked = this.getBottomBlockedDepth()
-    const minX = this.config.minMargin + bleacherDepth + this.config.aisles.side
-    const maxX = this.config.width - this.config.minMargin - bleacherDepth - this.config.aisles.side
+    const facultyWidth = this.getFacultyWidth()
+    const minX = this.config.minMargin + bleacherDepth + facultyWidth + this.config.aisles.side
+    const maxX = this.config.width - this.config.minMargin - bleacherDepth - facultyWidth - this.config.aisles.side
     const minY = Math.max(this.config.minMargin, this.getStageMaxY()) + this.config.aisles.front
     const maxY = this.config.length - this.config.minMargin - bleacherDepth - this.config.aisles.back - bottomBlocked
 
@@ -192,6 +239,8 @@ export class LayoutGenerator {
     )
     const { side, front, back, carpet } = this.config.aisles
     const stageMaxY = Math.max(0, this.getStageMaxY())
+    const bleacherDepth = this.getBleacherDepth()
+    const facultyWidth = this.getFacultyWidth()
 
     // Check for Tables at the bottom to avoid overlap
     const bottomBlocked = this.getBottomBlockedDepth();
@@ -202,8 +251,8 @@ export class LayoutGenerator {
           id: 'aisle-side-left',
           type: ZoneType.AISLE,
           bounds: {
-            minX: this.config.minMargin,
-            maxX: this.config.minMargin + side,
+            minX: this.config.minMargin + bleacherDepth + facultyWidth,
+            maxX: this.config.minMargin + bleacherDepth + facultyWidth + side,
             // Side aisles now span the full height of the gym floor
             minY: 0,
             maxY: this.config.length
@@ -214,8 +263,8 @@ export class LayoutGenerator {
           id: 'aisle-side-right',
           type: ZoneType.AISLE,
           bounds: {
-            minX: this.config.width - this.config.minMargin - side,
-            maxX: this.config.width - this.config.minMargin,
+            minX: this.config.width - this.config.minMargin - bleacherDepth - facultyWidth - side,
+            maxX: this.config.width - this.config.minMargin - bleacherDepth - facultyWidth,
             // Side aisles now span the full height of the gym floor
             minY: 0,
             maxY: this.config.length
@@ -244,8 +293,8 @@ export class LayoutGenerator {
         id: 'aisle-back',
         type: ZoneType.AISLE,
         bounds: {
-          minX: this.getBottomInset(),
-          maxX: this.config.width - this.getBottomInset(),
+          minX: this.config.minMargin + bleacherDepth + facultyWidth + side,
+          maxX: this.config.width - this.config.minMargin - bleacherDepth - facultyWidth - side,
           minY: this.config.length - bottomBlocked - back,
           maxY: this.config.length - bottomBlocked
         },
@@ -817,7 +866,8 @@ export class LayoutGenerator {
     y: number,
     row: number,
     position: number,
-    seatType: typeof this.config.seatTypes[0]
+    seatType: typeof this.config.seatTypes[0],
+    isVip: boolean = false
   ): Seat {
     const seatId = `${row}-${position}`
     const seatNumber = `${position + 1}`
@@ -829,7 +879,7 @@ export class LayoutGenerator {
       type: seatType.type,
       accessible: position % 4 === 0,
       blocked: false,
-      vip: false,
+      vip: isVip,
       occupied: false,
       seatNumber
     }
@@ -839,6 +889,54 @@ export class LayoutGenerator {
       position: { x, y },
       dimension: seatType,
       metadata
+    }
+  }
+
+  private placeFacultySeats(): void {
+    const layout = this.getFacultyLayout()
+    if (!layout) return
+
+    const seatType = this.config.seatTypes[0]
+    const bleacherDepth = this.getBleacherDepth()
+    const horizontalPitch = seatType.width + this.config.horizontalSpacing
+    const verticalPitch = seatType.depth + this.config.verticalSpacing
+    let totalFacultyPlaced = 0
+
+    // Left Faculty
+    for (let col = 0; col < layout.columnsPerSide; col++) {
+      const x = this.config.minMargin + bleacherDepth + col * horizontalPitch + seatType.width / 2
+      for (let row = 0; row < layout.estimatedRows; row++) {
+        const sideIdx = col * layout.estimatedRows + row
+        if (sideIdx >= layout.facultyPerSide) break
+
+        const y = layout.minY + row * verticalPitch + seatType.depth / 2
+        // We only check if it fits in the shape, as faculty seats are placed first and push others
+        if (this.pointInShape(x, y)) {
+          totalFacultyPlaced++
+          const seat = this.createSeat(x, y, 5000 + row, col, seatType, true)
+          seat.metadata.seatNumber = `F-${totalFacultyPlaced}`
+          this.seats.push(seat)
+          this.markAreaAsUsed(x, y, seatType.width, seatType.depth)
+        }
+      }
+    }
+
+    // Right Faculty
+    for (let col = 0; col < layout.columnsPerSide; col++) {
+      const x = this.config.width - this.config.minMargin - bleacherDepth - (layout.columnsPerSide - col - 1) * horizontalPitch - seatType.width / 2
+      for (let row = 0; row < layout.estimatedRows; row++) {
+        const sideIdx = col * layout.estimatedRows + row
+        if (sideIdx >= layout.facultyPerSide) break
+
+        const y = layout.minY + row * verticalPitch + seatType.depth / 2
+        if (this.pointInShape(x, y)) {
+          totalFacultyPlaced++
+          const seat = this.createSeat(x, y, 6000 + row, col, seatType, true)
+          seat.metadata.seatNumber = `F-${totalFacultyPlaced}`
+          this.seats.push(seat)
+          this.markAreaAsUsed(x, y, seatType.width, seatType.depth)
+        }
+      }
     }
   }
 

@@ -625,7 +625,11 @@ export class Canvas2DRenderer {
       const height = seat.dimension.depth * this.renderContext.scale
 
       // Determine color based on occupancy directly (green filled, blue empty)
-      const color = seat.metadata.occupied ? '#10b981' : '#3b82f6'
+      // VIP seats use the VIP color
+      let color = seat.metadata.occupied ? '#10b981' : '#3b82f6'
+      if (seat.metadata.vip) {
+        color = theme.seatVip
+      }
       // Draw seat rectangle
       this.ctx.fillStyle = color
       this.ctx.globalAlpha = seat.metadata.blocked ? 0.3 : 1
@@ -952,6 +956,7 @@ export class Canvas2DRenderer {
     const theme = this.colors[this.renderOptions.theme || 'light']
     const items = [
       { color: '#10b981', label: 'Graduates' },
+      { color: theme.seatVip, label: 'Faculty' },
       { color: '#efad44', label: 'Stage' },
       { color: '#f00505', label: 'Center Aisle' },
       { color: '#ededed', label: 'Aisle' }

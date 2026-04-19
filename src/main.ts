@@ -145,6 +145,11 @@ function setupDOM(): void {
                 <input id="target-people" type="number" min="0" step="1" placeholder="Auto" style="width:100px;" />
               </div>
 
+            <div class="control-group">
+              <label for="faculty-count">Faculty No.:</label>
+              <input id="faculty-count" type="number" min="0" step="1" placeholder="0" style="width:100px;" />
+            </div>
+
 
 
 
@@ -732,6 +737,7 @@ function setInputsFromConfig(config: any): void {
   }
   // Set target values if available in config
   ;(document.getElementById('target-people') as HTMLInputElement).value = config.targetPeople ? String(config.targetPeople) : ''
+  ;(document.getElementById('faculty-count') as HTMLInputElement).value = config.facultyCount ? String(config.facultyCount) : ''
 }
 
 // Build config from sidebar input fields and regenerate layout
@@ -763,6 +769,13 @@ function updateConfigFromInputs(): void {
   let targetPeopleVal = targetPeopleInput ? parseInt(targetPeopleInput.value, 10) : NaN
   if (!isNaN(targetPeopleVal) && targetPeopleVal > 0) {
     config.targetPeople = targetPeopleVal
+  }
+
+  // Faculty count
+  const facultyCountInput = document.getElementById('faculty-count') as HTMLInputElement
+  let facultyCountVal = facultyCountInput ? parseInt(facultyCountInput.value, 10) : NaN
+  if (!isNaN(facultyCountVal) && facultyCountVal > 0) {
+    config.facultyCount = facultyCountVal
   }
 
   // Parse gym dimensions from input and assign to config before stage validation
@@ -893,8 +906,30 @@ function updateConfigFromInputs(): void {
   config.bleachers.aisleCount = Number.isNaN(bleachersAisles) ? 0 : bleachersAisles
   config.bleachers.entranceWidth = Number.isNaN(bleachersEntranceWidth) ? 2.5 : bleachersEntranceWidth
 
+  // Calculate estimated faculty width to push other elements
+  const facultyCount = config.facultyCount || 0
+  let facultyWidth = 0
+  if (facultyCount > 0) {
+    const stageMaxY = config.zones.find((z: any) => z.type === 'stage')?.bounds.maxY || config.minMargin
+    const bleacherDepth = bleachersEnabled ? bleachersWidth : 0
+    const bottomBlocked = Math.max(tableDepth || 0, photoboothEnabled ? photoboothDepth : 0)
+    const minY = Math.max(config.minMargin, stageMaxY) + aisleFront
+    const maxY = length - config.minMargin - bleacherDepth - aisleBack - bottomBlocked
+    const usableLength = maxY - minY
+    if (usableLength > 0) {
+      const rowSpacing = seatDepth + verticalSpacing
+      const estimatedRows = Math.floor((usableLength + verticalSpacing) / rowSpacing)
+      if (estimatedRows > 0) {
+        const facultyPerSide = Math.ceil(facultyCount / 2)
+        const columnsPerSide = Math.ceil(facultyPerSide / estimatedRows)
+        facultyWidth = columnsPerSide * (seatWidth + horizontalSpacing)
+      }
+    }
+  }
+
   if (hasTables) {
-    const sideClearance = config.minMargin + config.aisles.side
+    const bleacherDepth = bleachersEnabled ? bleachersWidth : 0
+    const sideClearance = config.minMargin + config.aisles.side + bleacherDepth + facultyWidth
     const carpetHalfWidth = config.aisles.carpet / 2
     const leftSectionMinX = sideClearance
     const leftSectionMaxX = config.width / 2 - carpetHalfWidth
@@ -959,7 +994,8 @@ function updateConfigFromInputs(): void {
 
   if (photoboothEnabled) {
     // Positioned beside the left table area at the bottom left
-    const sideClearance = config.minMargin + config.aisles.side
+    const bleacherDepth = bleachersEnabled ? bleachersWidth : 0
+    const sideClearance = config.minMargin + config.aisles.side + bleacherDepth + facultyWidth
     config.zones.push({
       id: 'photobooth',
       type: 'blocked',
