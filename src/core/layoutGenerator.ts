@@ -20,6 +20,8 @@ export class LayoutGenerator {
   private seats: Seat[] = []
   private usedArea: Set<string> = new Set()
   private tooDense: boolean = false
+  private leftCounter: number = 0
+  private rightCounter: number = 0
 
   constructor(config: GymConfig) {
     this.config = config
@@ -68,6 +70,8 @@ export class LayoutGenerator {
   generate(): LayoutOutput {
     this.seats = []
     this.usedArea.clear()
+    this.leftCounter = 0
+    this.rightCounter = 0
 
     // Add aisle zones based on config
     this.addAisleZones()
@@ -198,18 +202,33 @@ export class LayoutGenerator {
     if (usableLength <= 0) return null
 
     const rowSpacing = seatType.depth + this.config.verticalSpacing
-    const estimatedRows = Math.floor((usableLength + this.config.verticalSpacing) / rowSpacing)
+    const maxRows = Math.floor((usableLength + this.config.verticalSpacing) / rowSpacing)
     
-    if (estimatedRows <= 0) return null
+    if (maxRows <= 0) return null
 
     const facultyPerSide = Math.ceil(facultyCount / 2)
-    const columnsPerSide = Math.ceil(facultyPerSide / estimatedRows)
+    
+    // Calculate columns needed for pyramid (tapering by 2 seats each column)
+    let columnsPerSide = 0
+    let capacity = 0
+    let currentMax = maxRows
+    while (capacity < facultyPerSide && currentMax > 0) {
+      capacity += currentMax
+      columnsPerSide++
+      currentMax -= 2
+    }
+    
+    // If we still need more space, just add single-seat columns (unlikely but safe)
+    if (capacity < facultyPerSide) {
+      columnsPerSide += Math.ceil((facultyPerSide - capacity) / 1)
+    }
 
     return {
-      estimatedRows,
+      maxRows,
       columnsPerSide,
       facultyPerSide,
-      minY
+      minY,
+      usableLength
     }
   }
 
@@ -870,7 +889,19 @@ export class LayoutGenerator {
     isVip: boolean = false
   ): Seat {
     const seatId = `${row}-${position}`
-    const seatNumber = `${position + 1}`
+    const centerX = this.config.width / 2
+    let seatNumber = `${position + 1}`
+
+    // Ordinary seats get continuous numbering, separate for left/right
+    if (!isVip && seatType.type !== SeatType.BLEACHER) {
+      if (x < centerX) {
+        this.leftCounter++
+        seatNumber = `${this.leftCounter}`
+      } else {
+        this.rightCounter++
+        seatNumber = `${this.rightCounter}`
+      }
+    }
 
     const metadata: SeatMetadata = {
       id: seatId,
@@ -894,49 +925,61 @@ export class LayoutGenerator {
 
   private placeFacultySeats(): void {
     const layout = this.getFacultyLayout()
-    if (!layout) return
+    if (!layout || !this.config.facultyCount) return
 
     const seatType = this.config.seatTypes[0]
     const bleacherDepth = this.getBleacherDepth()
     const horizontalPitch = seatType.width + this.config.horizontalSpacing
     const verticalPitch = seatType.depth + this.config.verticalSpacing
-    let totalFacultyPlaced = 0
+    
+    const facultyCount = this.config.facultyCount
+    const leftToPlace = Math.floor(facultyCount / 2)
+    const rightToPlace = facultyCount - leftToPlace
+
+    let totalPlaced = 0
 
     // Left Faculty
-    for (let col = 0; col < layout.columnsPerSide; col++) {
+    let leftRemaining = leftToPlace
+    for (let col = 0; col < layout.columnsPerSide && leftRemaining > 0; col++) {
       const x = this.config.minMargin + bleacherDepth + col * horizontalPitch + seatType.width / 2
-      for (let row = 0; row < layout.estimatedRows; row++) {
-        const sideIdx = col * layout.estimatedRows + row
-        if (sideIdx >= layout.facultyPerSide) break
+      const seatsInThisCol = Math.min(leftRemaining, Math.max(1, layout.maxRows - 2 * col))
+      
+      const colHeight = seatsInThisCol * seatType.depth + (seatsInThisCol - 1) * this.config.verticalSpacing
+      const colMinY = layout.minY + (layout.usableLength - colHeight) / 2
 
-        const y = layout.minY + row * verticalPitch + seatType.depth / 2
-        // We only check if it fits in the shape, as faculty seats are placed first and push others
+      for (let row = 0; row < seatsInThisCol; row++) {
+        const y = colMinY + row * verticalPitch + seatType.depth / 2
         if (this.pointInShape(x, y)) {
-          totalFacultyPlaced++
+          totalPlaced++
           const seat = this.createSeat(x, y, 5000 + row, col, seatType, true)
-          seat.metadata.seatNumber = `F-${totalFacultyPlaced}`
+          seat.metadata.seatNumber = `F-${totalPlaced}`
           this.seats.push(seat)
           this.markAreaAsUsed(x, y, seatType.width, seatType.depth)
         }
       }
+      leftRemaining -= seatsInThisCol
     }
 
     // Right Faculty
-    for (let col = 0; col < layout.columnsPerSide; col++) {
-      const x = this.config.width - this.config.minMargin - bleacherDepth - (layout.columnsPerSide - col - 1) * horizontalPitch - seatType.width / 2
-      for (let row = 0; row < layout.estimatedRows; row++) {
-        const sideIdx = col * layout.estimatedRows + row
-        if (sideIdx >= layout.facultyPerSide) break
+    let rightRemaining = rightToPlace
+    for (let col = 0; col < layout.columnsPerSide && rightRemaining > 0; col++) {
+      const x = this.config.width - this.config.minMargin - bleacherDepth - col * horizontalPitch - seatType.width / 2
+      const seatsInThisCol = Math.min(rightRemaining, Math.max(1, layout.maxRows - 2 * col))
+      
+      const colHeight = seatsInThisCol * seatType.depth + (seatsInThisCol - 1) * this.config.verticalSpacing
+      const colMinY = layout.minY + (layout.usableLength - colHeight) / 2
 
-        const y = layout.minY + row * verticalPitch + seatType.depth / 2
+      for (let row = 0; row < seatsInThisCol; row++) {
+        const y = colMinY + row * verticalPitch + seatType.depth / 2
         if (this.pointInShape(x, y)) {
-          totalFacultyPlaced++
+          totalPlaced++
           const seat = this.createSeat(x, y, 6000 + row, col, seatType, true)
-          seat.metadata.seatNumber = `F-${totalFacultyPlaced}`
+          seat.metadata.seatNumber = `F-${totalPlaced}`
           this.seats.push(seat)
           this.markAreaAsUsed(x, y, seatType.width, seatType.depth)
         }
       }
+      rightRemaining -= seatsInThisCol
     }
   }
 

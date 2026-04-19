@@ -136,50 +136,69 @@ function setupDOM(): void {
             <div class="control-group">
               <label>Stage Size (meters):</label>
               <div style="display:flex; gap:8px;">
-                <input id="input-stage-width" type="number" min="1" step="0.1" placeholder="Width" style="width:70px;" />
-                <input id="input-stage-length" type="number" min="1" step="0.1" placeholder="Length" style="width:70px;" />
+                <div class="input-with-label">
+                  <span class="field-label">Width</span>
+                  <input id="input-stage-width" type="number" min="1" step="0.1" style="width:70px;" />
+                </div>
+                <div class="input-with-label">
+                  <span class="field-label">Length</span>
+                  <input id="input-stage-length" type="number" min="1" step="0.1" style="width:70px;" />
+                </div>
               </div>
             </div>
-              <div class="control-group">
-                <label for="target-people">Target People (occupancy):</label>
-                <input id="target-people" type="number" min="0" step="1" placeholder="Auto" style="width:100px;" />
-              </div>
+            
+            <div class="control-group">
+              <label for="target-people">Target People (occupancy):</label>
+              <input id="target-people" type="number" min="0" step="1" style="width:100px;" />
+            </div>
 
             <div class="control-group">
               <label for="faculty-count">Faculty No.:</label>
-              <input id="faculty-count" type="number" min="0" step="1" placeholder="0" style="width:100px;" />
+              <input id="faculty-count" type="number" min="0" step="1" style="width:100px;" />
             </div>
-
-
-
 
             <div class="control-group">
               <label>Gym Dimensions (meters):</label>
               <div style="display:flex; gap:8px;">
-                <input id="input-width" type="number" min="1" step="0.1" placeholder="Width" style="width:70px;" />
-                <input id="input-length" type="number" min="1" step="0.1" placeholder="Length" style="width:70px;" />
-                <input id="input-height" type="number" min="1" step="0.1" placeholder="Height" style="width:70px;" />
+                <div class="input-with-label">
+                  <span class="field-label">Width</span>
+                  <input id="input-width" type="number" min="1" step="0.1" style="width:70px;" />
+                </div>
+                <div class="input-with-label">
+                  <span class="field-label">Length</span>
+                  <input id="input-length" type="number" min="1" step="0.1" style="width:70px;" />
+                </div>
+                <div class="input-with-label">
+                  <span class="field-label">Height</span>
+                  <input id="input-height" type="number" min="1" step="0.1" style="width:70px;" />
+                </div>
               </div>
             </div>
 
             <div class="control-group">
               <label>Seat Size (meters):</label>
               <div style="display:flex; gap:8px;">
-                <input id="input-seat-width" type="number" min="0.2" step="0.05" placeholder="Width" style="width:70px;" />
-                <input id="input-seat-depth" type="number" min="0.2" step="0.05" placeholder="Depth" style="width:70px;" />
+                <div class="input-with-label">
+                  <span class="field-label">Width</span>
+                  <input id="input-seat-width" type="number" min="0.2" step="0.05" style="width:70px;" />
+                </div>
+                <div class="input-with-label">
+                  <span class="field-label">Depth</span>
+                  <input id="input-seat-depth" type="number" min="0.2" step="0.05" style="width:70px;" />
+                </div>
               </div>
             </div>
 
             <div class="control-group">
               <label>Spacing (meters):</label>
               <div style="display:flex; gap:8px;">
-                <div style="display:flex; flex-direction:column;">
-                  <span style="font-size:10px; color:#6b7280;">Horizontal</span>
-                  <input id="input-horizontal-spacing" type="number" min="0" step="0.05" placeholder="Horiz." style="width:70px;" />
+                <div class="input-with-label">
+                  <span class="field-label">Horizontal</span>
+                  <input id="input-horizontal-spacing" type="number" min="0" step="0.05" style="width:70px;" />
                 </div>
-                <div style="display:flex; flex-direction:column;">
-                  <span style="font-size:10px; color:#6b7280;">Vertical</span>
-                  <input id="input-vertical-spacing" type="number" min="0" step="0.05" placeholder="Vert." style="width:70px;" />
+                <div class="input-with-label">
+                  <span class="field-label">Vertical</span>
+                  <input id="input-vertical-spacing" type="number" min="0" step="0.05" style="width:70px;" />
                 </div>
               </div>
             </div>
@@ -195,43 +214,81 @@ function setupDOM(): void {
             </div>
 
             <div class="control-group">
-              <label>Aisles:</label>
-              <div style="display:flex; gap:8px;">
-                <input id="input-aisle-side" type="number" min="0" step="0.1" placeholder="Side" style="width:60px;" />
-                <input id="input-aisle-front" type="number" min="0" step="0.1" placeholder="Front" style="width:60px;" />
-                <input id="input-aisle-back" type="number" min="0" step="0.1" placeholder="Back" style="width:60px;" />
-                <input id="input-aisle-carpet" type="number" min="0" step="0.1" placeholder="Carpet" style="width:70px;" />
+              <label>Aisle Widths (meters):</label>
+              <div style="display:flex; flex-wrap:wrap; gap:8px;">
+                <div class="input-with-label">
+                  <span class="field-label">Side</span>
+                  <input id="input-aisle-side" type="number" min="0" step="0.1" style="width:60px;" />
+                </div>
+                <div class="input-with-label">
+                  <span class="field-label">Front</span>
+                  <input id="input-aisle-front" type="number" min="0" step="0.1" style="width:60px;" />
+                </div>
+                <div class="input-with-label">
+                  <span class="field-label">Back</span>
+                  <input id="input-aisle-back" type="number" min="0" step="0.1" style="width:60px;" />
+                </div>
+                <div class="input-with-label">
+                  <span class="field-label">Carpet</span>
+                  <input id="input-aisle-carpet" type="number" min="0" step="0.1" style="width:70px;" />
+                </div>
               </div>
             </div>
 
             <div class="control-group">
               <label>Bleachers:</label>
-              <div style="display:flex; align-items:center; gap:8px;">
+              <div style="display:flex; align-items:center; gap:8px; margin-bottom: 8px;">
                 <input id="bleachers-enabled" type="checkbox" /> Enable
               </div>
-              <div style="display:flex; gap:8px; margin-top:6px;">
-                <input id="bleachers-steps" type="number" min="1" step="1" placeholder="# Steps" style="width:60px;" />
-                <input id="bleachers-aisles" type="number" min="0" step="1" placeholder="# Aisles" style="width:70px;" />
-                <input id="bleachers-width" type="number" min="0.5" step="0.1" placeholder="Depth (m)" style="width:80px;" />
-                <input id="bleachers-entrance-width" type="number" min="0.5" step="0.1" placeholder="Entrance (m)" style="width:92px;" />
+              <div style="display:flex; flex-wrap:wrap; gap:8px;">
+                <div class="input-with-label">
+                  <span class="field-label">Steps</span>
+                  <input id="bleachers-steps" type="number" min="1" step="1" style="width:60px;" />
+                </div>
+                <div class="input-with-label">
+                  <span class="field-label">Aisles</span>
+                  <input id="bleachers-aisles" type="number" min="0" step="1" style="width:70px;" />
+                </div>
+                <div class="input-with-label">
+                  <span class="field-label">Depth (m)</span>
+                  <input id="bleachers-width" type="number" min="0.5" step="0.1" style="width:80px;" />
+                </div>
+                <div class="input-with-label">
+                  <span class="field-label">Entrance (m)</span>
+                  <input id="bleachers-entrance-width" type="number" min="0.5" step="0.1" style="width:92px;" />
+                </div>
               </div>
             </div>
+            
             <div class="control-group">
-              <label>Bottom Tables:</label>
-              <div style="display:flex; gap:8px; margin-top:6px;">
-                <input id="table-width" type="number" min="0" step="0.1" placeholder="Width" style="width:70px;" />
-                <input id="table-depth" type="number" min="0" step="0.1" placeholder="Depth" style="width:70px;" />
+              <label>Bottom Tables (meters):</label>
+              <div style="display:flex; gap:8px;">
+                <div class="input-with-label">
+                  <span class="field-label">Width</span>
+                  <input id="table-width" type="number" min="0" step="0.1" style="width:70px;" />
+                </div>
+                <div class="input-with-label">
+                  <span class="field-label">Depth</span>
+                  <input id="table-depth" type="number" min="0" step="0.1" style="width:70px;" />
+                </div>
               </div>
               <p class="help-text">Adds tables below the back aisle at the bottom corners.</p>
             </div>
+
             <div class="control-group">
-              <label>Photobooth Section:</label>
-              <div style="display:flex; align-items:center; gap:8px;">
+              <label>Photobooth Section (meters):</label>
+              <div style="display:flex; align-items:center; gap:8px; margin-bottom: 8px;">
                 <input id="photobooth-enabled" type="checkbox" /> Enable
               </div>
-              <div style="display:flex; gap:8px; margin-top:6px;">
-                <input id="photobooth-width" type="number" min="0" step="0.1" placeholder="Width" style="width:70px;" />
-                <input id="photobooth-depth" type="number" min="0" step="0.1" placeholder="Depth" style="width:70px;" />
+              <div style="display:flex; gap:8px;">
+                <div class="input-with-label">
+                  <span class="field-label">Width</span>
+                  <input id="photobooth-width" type="number" min="0" step="0.1" style="width:70px;" />
+                </div>
+                <div class="input-with-label">
+                  <span class="field-label">Depth</span>
+                  <input id="photobooth-depth" type="number" min="0" step="0.1" style="width:70px;" />
+                </div>
               </div>
               <p class="help-text">Placed at the bottom left corner, beside the table area.</p>
             </div>
@@ -522,39 +579,50 @@ function loadLayout(config: GymConfig): void {
     if (layout) {
       const targetPeopleInput = document.getElementById('target-people') as HTMLInputElement
       let targetPeopleVal = targetPeopleInput ? parseInt(targetPeopleInput.value, 10) : NaN
-      if (isNaN(targetPeopleVal) || targetPeopleVal <= 0) {
-        targetPeopleVal = layout.seats.length
-      }
-      const n = Math.min(layout.seats.length, targetPeopleVal)
+      
+      // Separate Faculty and Ordinary seats
+      const facultySeats = layout.seats.filter((s: any) => s.metadata.vip)
+      const ordinarySeats = layout.seats.filter((s: any) => !s.metadata.vip && !s.metadata.bleacher)
+      const bleacherSeats = layout.seats.filter((s: any) => s.metadata.bleacher)
 
+      // Faculty are always occupied if they exist
+      facultySeats.forEach((s: any) => { s.metadata.occupied = true })
+
+      // Handle Ordinary Seats occupancy based on targetPeople
+      if (isNaN(targetPeopleVal) || targetPeopleVal <= 0) {
+        targetPeopleVal = ordinarySeats.length
+      }
+
+      const n = Math.min(ordinarySeats.length, targetPeopleVal)
       const centerX = layout.config.width / 2
 
-      const leftSeats = layout.seats.filter((s: any) => s.position.x < centerX)
-      const rightSeats = layout.seats.filter((s: any) => s.position.x >= centerX)
+      const leftOrdinary = ordinarySeats.filter((s: any) => s.position.x < centerX)
+      const rightOrdinary = ordinarySeats.filter((s: any) => s.position.x >= centerX)
+      
       const half = Math.floor(n / 2)
       const remainder = n % 2
       const leftTarget = half
       const rightTarget = half + remainder
 
-      // // Assign occupancy sequentially (Front to Back)
-      // layout.seats.forEach((s: any, index: number) => {
-      //   s.metadata.occupied = index < n
-      // })
-
-      leftSeats.forEach((s: any, i: number) => {
+      // Reset ordinary occupancy first
+      ordinarySeats.forEach((s: any) => { s.metadata.occupied = false })
+      
+      leftOrdinary.forEach((s: any, i: number) => {
         s.metadata.occupied = i < leftTarget
       })
-
-      rightSeats.forEach((s: any, i: number) => {
+      rightOrdinary.forEach((s: any, i: number) => {
         s.metadata.occupied = i < rightTarget
       })
 
-      layout.stats.seatsByOccupancy.occupied = n
-      layout.stats.seatsByOccupancy.empty = layout.seats.length - n
-      layout.occupiedSeats = n
-      layout.utilizationRatio = layout.seats.length > 0 ? n / layout.seats.length : 0
-      if (targetPeopleVal > layout.seats.length) {
-        layoutWarning = `⚠️ Only ${layout.seats.length} people are accommodated; requested ${targetPeopleVal}.`
+      // Update total stats
+      const totalOccupied = facultySeats.length + n
+      layout.stats.seatsByOccupancy.occupied = totalOccupied
+      layout.stats.seatsByOccupancy.empty = layout.seats.length - totalOccupied
+      layout.occupiedSeats = totalOccupied
+      layout.utilizationRatio = layout.seats.length > 0 ? totalOccupied / layout.seats.length : 0
+      
+      if (targetPeopleVal > ordinarySeats.length) {
+        layoutWarning = `⚠️ Only ${ordinarySeats.length} graduates can be accommodated; requested ${targetPeopleVal}.`
       }
     }
 
@@ -918,10 +986,20 @@ function updateConfigFromInputs(): void {
     const usableLength = maxY - minY
     if (usableLength > 0) {
       const rowSpacing = seatDepth + verticalSpacing
-      const estimatedRows = Math.floor((usableLength + verticalSpacing) / rowSpacing)
-      if (estimatedRows > 0) {
+      const maxRows = Math.floor((usableLength + verticalSpacing) / rowSpacing)
+      if (maxRows > 0) {
         const facultyPerSide = Math.ceil(facultyCount / 2)
-        const columnsPerSide = Math.ceil(facultyPerSide / estimatedRows)
+        let columnsPerSide = 0
+        let capacity = 0
+        let currentMax = maxRows
+        while (capacity < facultyPerSide && currentMax > 0) {
+          capacity += currentMax
+          columnsPerSide++
+          currentMax -= 2
+        }
+        if (capacity < facultyPerSide) {
+          columnsPerSide += Math.ceil((facultyPerSide - capacity) / 1)
+        }
         facultyWidth = columnsPerSide * (seatWidth + horizontalSpacing)
       }
     }
@@ -1021,9 +1099,16 @@ function updateStats(layout: any): void {
   if (!statsContainer) return
 
   // Statistics
+  const facultySeats = layout.seats.filter((s: any) => s.metadata.vip).length
+  const ordinarySeats = layout.seats.filter((s: any) => !s.metadata.vip && !s.metadata.bleacher).length
+  const bleacherCount = layout.seats.filter((s: any) => s.metadata.bleacher).length
+
   const statsHtml = `
     <div class="stat-item"><span class="stat-label">Total Seats:</span><span class="stat-value">${layout.totalSeats}</span></div>
-    <div class="stat-item"><span class="stat-label">Utilization:</span><span class="stat-value">${(layout.utilizationRatio * 100).toFixed(1)}%</span></div>
+    <div class="stat-item" style="padding-left: 10px; border-bottom: 1px dashed #eee;"><span class="stat-label">└ Faculty:</span><span class="stat-value">${facultySeats}</span></div>
+    <div class="stat-item" style="padding-left: 10px; border-bottom: 1px dashed #eee;"><span class="stat-label">└ Ordinary:</span><span class="stat-value">${ordinarySeats}</span></div>
+    ${bleacherCount > 0 ? `<div class="stat-item" style="padding-left: 10px; border-bottom: 1px dashed #eee;"><span class="stat-label">└ Bleachers:</span><span class="stat-value">${bleacherCount}</span></div>` : ''}
+    <div class="stat-item" style="margin-top: 8px;"><span class="stat-label">Utilization:</span><span class="stat-value">${(layout.utilizationRatio * 100).toFixed(1)}%</span></div>
   `
   statsContainer.innerHTML = statsHtml
 
@@ -1206,6 +1291,20 @@ function getStyles(): string {
       font-size: 13px;
       margin-bottom: 8px;
       color: #374151;
+      font-weight: 600;
+    }
+
+    .input-with-label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .field-label {
+      font-size: 10px;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.025em;
     }
 
     .control-group input[type="checkbox"] {
