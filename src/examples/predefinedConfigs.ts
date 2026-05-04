@@ -44,7 +44,8 @@ export const SMALL_GYM_CONFIG: GymConfig = {
     side: 1,
     front: 1,
     back: 1,
-    carpet: 2
+    carpet: 2,
+    horizontal: 0
   },
 
   bleachers: {
@@ -103,7 +104,8 @@ export const MEDIUM_GYM_CONFIG: GymConfig = {
     side: 1.5,
     front: 1.5,
     back: 1.5,
-    carpet: 2.5
+    carpet: 2.5,
+    horizontal: 0
   },
 
   bleachers: {
@@ -162,7 +164,8 @@ export const LARGE_ARENA_CONFIG: GymConfig = {
     side: 2,
     front: 2,
     back: 2,
-    carpet: 3
+    carpet: 3,
+    horizontal: 0
   },
 
   bleachers: {
@@ -220,7 +223,8 @@ export const CIRCULAR_AMPHITHEATER_CONFIG: GymConfig = {
     side: 1.2,
     front: 1.2,
     back: 1.2,
-    carpet: 2
+    carpet: 2,
+    horizontal: 0
   },
 
   bleachers: {

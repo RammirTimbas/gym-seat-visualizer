@@ -42,7 +42,8 @@ export function validateConfig(config: GymConfig): ValidationResult {
     config.aisles.side < 0 ||
     config.aisles.front < 0 ||
     config.aisles.back < 0 ||
-    config.aisles.carpet < 0
+    config.aisles.carpet < 0 ||
+    (config.aisles.horizontal ?? 0) < 0
   ) {
     errors.push('Aisle widths cannot be negative')
   }
@@ -300,7 +301,8 @@ export function checkAisleCompliance(config: GymConfig): {
     config.aisles.side,
     config.aisles.front,
     config.aisles.back,
-    config.aisles.carpet
+    config.aisles.carpet,
+    config.aisles.horizontal ?? 0
   )
 
   return {

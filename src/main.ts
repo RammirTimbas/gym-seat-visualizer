@@ -232,6 +232,10 @@ function setupDOM(): void {
                   <span class="field-label">Carpet</span>
                   <input id="input-aisle-carpet" type="number" min="0" step="0.1" style="width:70px;" />
                 </div>
+                <div class="input-with-label">
+                  <span class="field-label">Horizontal</span>
+                  <input id="input-aisle-horizontal" type="number" min="0" step="0.1" style="width:90px;" />
+                </div>
               </div>
             </div>
 
@@ -718,7 +722,8 @@ function buildLayoutAlert(
       config.aisles.side,
       config.aisles.front,
       config.aisles.back,
-      config.aisles.carpet
+      config.aisles.carpet,
+      config.aisles.horizontal ?? 0
     )
     if (widestAisle > 0.5) {
       tips.push(`Reduce one or more aisle widths below ${widestAisle.toFixed(2)}m if your requirements permit it.`)
@@ -757,6 +762,7 @@ function setInputsFromConfig(config: any): void {
   ;(document.getElementById('input-aisle-front') as HTMLInputElement).value = config.aisles?.front ?? 0
   ;(document.getElementById('input-aisle-back') as HTMLInputElement).value = config.aisles?.back ?? 0
   ;(document.getElementById('input-aisle-carpet') as HTMLInputElement).value = config.aisles?.carpet ?? 0
+  ;(document.getElementById('input-aisle-horizontal') as HTMLInputElement).value = config.aisles?.horizontal ?? 0
   ;(document.getElementById('bleachers-enabled') as HTMLInputElement).checked = config.bleachers?.enabled || false
   ;(document.getElementById('bleachers-steps') as HTMLInputElement).value = config.bleachers?.numberOfSteps || ''
   ;(document.getElementById('bleachers-aisles') as HTMLInputElement).value = config.bleachers?.aisleCount ?? 0
@@ -823,7 +829,7 @@ function updateConfigFromInputs(): void {
       { type: SeatType.MONOBLOCK, width: 0.5, depth: 0.5, height: 0.4 }
     ],
     zones: [],
-    aisles: { side: 1, front: 1, back: 1, carpet: 2 },
+    aisles: { side: 1, front: 1, back: 1, carpet: 2, horizontal: 0 },
     bleachers: { enabled: false, width: 2, numberOfSteps: 4, stepHeight: 0.35, stepDepth: 0.6, aisleCount: 2, entranceWidth: 2.5 },
     horizontalSpacing: 0.1,
     verticalSpacing: 0.3,
@@ -888,6 +894,7 @@ function updateConfigFromInputs(): void {
   const aisleFront = parseFloat((document.getElementById('input-aisle-front') as HTMLInputElement).value)
   const aisleBack = parseFloat((document.getElementById('input-aisle-back') as HTMLInputElement).value)
   const aisleCarpet = parseFloat((document.getElementById('input-aisle-carpet') as HTMLInputElement).value)
+  const aisleHorizontal = parseFloat((document.getElementById('input-aisle-horizontal') as HTMLInputElement).value)
   const bleachersEnabled = (document.getElementById('bleachers-enabled') as HTMLInputElement).checked
   const bleachersSteps = parseInt((document.getElementById('bleachers-steps') as HTMLInputElement).value, 10)
   const bleachersAisles = parseInt((document.getElementById('bleachers-aisles') as HTMLInputElement).value, 10)
@@ -914,9 +921,11 @@ function updateConfigFromInputs(): void {
   if (isNaN(aisleFront) || aisleFront < 0) errors.push('Front aisle width must be 0 or more')
   if (isNaN(aisleBack) || aisleBack < 0) errors.push('Back aisle width must be 0 or more')
   if (isNaN(aisleCarpet) || aisleCarpet < 0) errors.push('Red carpet width must be 0 or more')
+  if (isNaN(aisleHorizontal) || aisleHorizontal < 0) errors.push('Horizontal aisle width must be 0 or more')
   if (!isNaN(width) && aisleSide * 2 >= width) errors.push('Side aisles are too wide for the gym')
   if (!isNaN(width) && aisleCarpet >= width - aisleSide * 2) errors.push('Red carpet must leave floor space beside it')
   if (!isNaN(length) && aisleFront + aisleBack >= length) errors.push('Front and back aisles are too deep for the gym')
+  if (!isNaN(length) && aisleHorizontal >= length - aisleFront - aisleBack) errors.push('Horizontal aisle is too wide for the remaining floor depth')
 
   const hasTables = !isNaN(tableWidth) && tableWidth > 0 && !isNaN(tableDepth) && tableDepth > 0
   if (hasTables) {
@@ -964,6 +973,7 @@ function updateConfigFromInputs(): void {
   config.aisles.front = aisleFront
   config.aisles.back = aisleBack
   config.aisles.carpet = aisleCarpet
+  config.aisles.horizontal = aisleHorizontal
   config.bleachers = config.bleachers || {}
   config.bleachers.enabled = bleachersEnabled
   config.bleachers.numberOfSteps = Number.isNaN(bleachersSteps) ? config.bleachers.numberOfSteps : bleachersSteps
@@ -1070,16 +1080,21 @@ function updateConfigFromInputs(): void {
   }
 
   if (photoboothEnabled) {
-    // Positioned beside the left table area at the bottom left
+    // Positioned using the space of the left aisle at the bottom left
     const bleacherDepth = bleachersEnabled ? bleachersWidth : 0
-    const sideClearance = config.minMargin + config.aisles.side + bleacherDepth + facultyWidth
+    const aisleStart = config.minMargin + bleacherDepth + facultyWidth
+    
+    // Respect the bottom chamfer (inset) of the gym
+    const bottomInset = Math.min(config.width * 0.14, 4)
+    const safeMinX = Math.max(aisleStart, bottomInset)
+    
     config.zones.push({
       id: 'photobooth',
       type: 'blocked',
       label: 'Photo Booth',
       bounds: {
-        minX: sideClearance,
-        maxX: sideClearance + photoboothWidth,
+        minX: safeMinX,
+        maxX: Math.min(safeMinX + photoboothWidth, config.width - bottomInset),
         minY: config.length - photoboothDepth,
         maxY: config.length
       }

@@ -142,6 +142,7 @@ export interface GymConfig {
     front: number // width of the front aisle in meters
     back: number // width of the back aisle in meters
     carpet: number // width of the center red carpet in meters
+    horizontal: number // width of the horizontal (cross) aisle in meters
   }
   
   // Spacing constraints

@@ -333,6 +333,7 @@ export class Canvas2DRenderer {
       'aisle-front': 'Front Aisle',
       'aisle-back': 'Back Aisle',
       'aisle-carpet': 'Red Carpet',
+      'aisle-horizontal': 'Horizontal Aisle',
       'photobooth': 'Photo Booth'
     }
 
@@ -425,9 +426,9 @@ export class Canvas2DRenderer {
 
     const theme = this.colors[this.renderOptions.theme || 'light']
 
-    // Draw non-aisle zones first
+    // Draw non-aisle zones first (skipping special zones that should be on top)
     for (const zone of this.layout.zones) {
-      if (zone.type === ZoneType.AISLE) {
+      if (zone.type === ZoneType.AISLE || zone.id.includes('table') || zone.id === 'photobooth') {
         continue
       }
       if (zone.id.includes('reserved')) {
@@ -443,12 +444,7 @@ export class Canvas2DRenderer {
       const height = y2 - y1
 
       // Draw zone
-      let zoneColor = theme.zone[zone.type as keyof typeof theme.zone]
-      if (zone.id.includes('table')) {
-        zoneColor = (theme.zone as any).medical
-      } else if (zone.id === 'photobooth') {
-        zoneColor = (theme.zone as any).photobooth
-      }
+      const zoneColor = theme.zone[zone.type as keyof typeof theme.zone]
 
       this.ctx.fillStyle = zoneColor
       this.ctx.globalAlpha = 0.3
@@ -470,21 +466,16 @@ export class Canvas2DRenderer {
         this.drawFittingText(zoneLabel, (x1 + x2) / 2, (y1 + y2) / 2, width - 8, height - 8, 13)
       }
 
-      // Draw dimension text for zones with fixed font size (readable at any zoom)
-      // Hide measurements for tables and photobooth to keep it clean as requested
-      const hideMeasurements = zone.id === 'table-left' || zone.id === 'table-right' || zone.id === 'photobooth'
-
+      // Draw dimension text
       if (
         this.renderOptions.showMeasurements &&
         !zone.id.includes('clearance') &&
-        !zone.id.includes('reserved') &&
-        !hideMeasurements
+        !zone.id.includes('reserved')
       ) {
         const zoneWidth = zone.bounds.maxX - zone.bounds.minX
         const zoneHeight = zone.bounds.maxY - zone.bounds.minY
         
-        let dimText: string
-        dimText = `${zoneWidth.toFixed(2)}m x ${zoneHeight.toFixed(2)}m`
+        const dimText = `${zoneWidth.toFixed(2)}m x ${zoneHeight.toFixed(2)}m`
         
         this.ctx.save()
         this.ctx.font = 'bold 10px monospace'
@@ -493,9 +484,8 @@ export class Canvas2DRenderer {
         this.ctx.textAlign = 'center'
         this.ctx.textBaseline = 'middle'
         
-        // Position dimension text at bottom-center of zone (avoid label overlap)
         const textX = (x1 + x2) / 2
-        const textY = y2 - 12 // 12 pixels from bottom edge
+        const textY = y2 - 12
         this.ctx.fillText(dimText, textX, textY)
         this.ctx.restore()
       }
@@ -535,6 +525,50 @@ export class Canvas2DRenderer {
         }
       }
 
+      this.ctx.restore()
+    }
+
+    // Draw special zones (Medical tables and Photobooth) on top of everything else
+    for (const zone of this.layout.zones) {
+      if (!zone.id.includes('table') && zone.id !== 'photobooth') {
+        continue
+      }
+      if (zone.id.includes('reserved')) {
+        continue
+      }
+
+      const x1 = zone.bounds.minX * this.renderContext.scale + this.renderContext.offsetX
+      const y1 = zone.bounds.minY * this.renderContext.scale + this.renderContext.offsetY
+      const x2 = zone.bounds.maxX * this.renderContext.scale + this.renderContext.offsetX
+      const y2 = zone.bounds.maxY * this.renderContext.scale + this.renderContext.offsetY
+
+      const width = x2 - x1
+      const height = y2 - y1
+
+      let zoneColor = (theme.zone as any).medical
+      if (zone.id === 'photobooth') {
+        zoneColor = (theme.zone as any).photobooth
+      }
+
+      this.ctx.save()
+      this.clipToGymFootprint()
+      // Use higher alpha so they stand out on top of aisles
+      this.ctx.fillStyle = zoneColor
+      this.ctx.globalAlpha = 0.9
+      this.ctx.fillRect(x1, y1, width, height)
+
+      this.ctx.strokeStyle = theme.text
+      this.ctx.lineWidth = 2
+      this.ctx.globalAlpha = 1
+      this.ctx.strokeRect(x1, y1, width, height)
+
+      const zoneLabel = this.getZoneDisplayLabel(zone.id, zone.label)
+      if (this.renderOptions.showLabels && zoneLabel) {
+        this.ctx.fillStyle = theme.text
+        this.ctx.textAlign = 'center'
+        this.ctx.textBaseline = 'middle'
+        this.drawFittingText(zoneLabel, (x1 + x2) / 2, (y1 + y2) / 2, width - 8, height - 8, 13)
+      }
       this.ctx.restore()
     }
   }
@@ -878,6 +912,7 @@ export class Canvas2DRenderer {
       lines.push(`• Front aisle: ${aisles.front.toFixed(2)}m`)
       lines.push(`• Back aisle: ${aisles.back.toFixed(2)}m`)
       lines.push(`• Red carpet: ${aisles.carpet.toFixed(2)}m`)
+      lines.push(`• Horizontal aisle: ${(aisles.horizontal ?? 0).toFixed(2)}m`)
     }
 
     for (const zone of this.layout.zones) {
@@ -963,16 +998,48 @@ export class Canvas2DRenderer {
   }
 
   private drawLegend(): void {
+    if (!this.layout) return
     const theme = this.colors[this.renderOptions.theme || 'light']
-    const items = [
-      { color: '#10b981', label: 'Graduates' },
-      { color: theme.seatVip, label: 'Faculty' },
-      { color: '#efad44', label: 'Stage' },
-      { color: (theme.zone as any).medical, label: 'Medical Team' },
-      { color: (theme.zone as any).photobooth, label: 'Photo Booth' },
-      { color: '#f00505', label: 'Center Aisle' },
-      { color: '#ededed', label: 'Aisle' }
-    ]
+    
+    // Only include elements that are actually present in the layout
+    const items: Array<{ color: string; label: string }> = []
+    
+    // 1. Graduates (Occupied seats)
+    if (this.layout.seats.some(s => s.metadata.occupied)) {
+      items.push({ color: '#10b981', label: 'Graduates' })
+    }
+    
+    // 2. Faculty (VIP seats)
+    if (this.layout.seats.some(s => s.metadata.vip)) {
+      items.push({ color: theme.seatVip, label: 'Faculty' })
+    }
+    
+    // 3. Stage
+    if (this.layout.zones.some(z => z.type === ZoneType.STAGE)) {
+      items.push({ color: theme.zone.stage, label: 'Stage' })
+    }
+    
+    // 4. Medical Team (Table zones)
+    if (this.layout.zones.some(z => z.id.includes('table'))) {
+      items.push({ color: (theme.zone as any).medical, label: 'Medical Team' })
+    }
+    
+    // 5. Photo Booth
+    if (this.layout.zones.some(z => z.id === 'photobooth')) {
+      items.push({ color: (theme.zone as any).photobooth, label: 'Photo Booth' })
+    }
+    
+    // 6. Center Aisle (Carpet)
+    if (this.layout.zones.some(z => z.id === 'aisle-carpet')) {
+      items.push({ color: '#b91c1c', label: 'Center Aisle' })
+    }
+    
+    // 7. Aisle (Other aisles)
+    if (this.layout.zones.some(z => z.type === ZoneType.AISLE && z.id !== 'aisle-carpet')) {
+      items.push({ color: '#ededed', label: 'Aisle' })
+    }
+
+    if (items.length === 0) return
 
     const padding = 12
     const lineHeight = 18
