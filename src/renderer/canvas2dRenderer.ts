@@ -491,11 +491,19 @@ export class Canvas2DRenderer {
       }
     }
 
-    // Draw aisles last with solid fill and no transparency
-    for (const zone of this.layout.zones) {
-      if (zone.type !== ZoneType.AISLE) {
-        continue
-      }
+    // Draw aisles last with solid fill and no transparency.
+    // Important: draw the red carpet after other aisles so it doesn't get overpainted
+    // (e.g., by a horizontal cross-aisle).
+    const aisleZones = this.layout.zones
+      .filter(z => z.type === ZoneType.AISLE)
+      .sort((a, b) => {
+        const aIsCarpet = a.id === 'aisle-carpet'
+        const bIsCarpet = b.id === 'aisle-carpet'
+        if (aIsCarpet === bIsCarpet) return 0
+        return aIsCarpet ? 1 : -1 // carpet last
+      })
+
+    for (const zone of aisleZones) {
 
       const x1 = zone.bounds.minX * this.renderContext.scale + this.renderContext.offsetX
       const y1 = zone.bounds.minY * this.renderContext.scale + this.renderContext.offsetY
@@ -518,10 +526,35 @@ export class Canvas2DRenderer {
         const aisleLabel = this.getZoneDisplayLabel(zone.id, zone.label)
         if (aisleLabel) {
           this.ctx.fillStyle = isCarpet ? '#fff7ed' : theme.text
-          this.ctx.font = 'bold 11px sans-serif'
-          this.ctx.textAlign = 'center'
-          this.ctx.textBaseline = 'middle'
-          this.ctx.fillText(aisleLabel, (x1 + x2) / 2, (y1 + y2) / 2)
+
+          // Side aisle + red carpet labels: render vertically (top-to-bottom).
+          if (
+            zone.id === 'aisle-side-left' ||
+            zone.id === 'aisle-side-right' ||
+            zone.id === 'aisle-carpet'
+          ) {
+            this.ctx.save()
+            this.ctx.font = 'bold 11px sans-serif'
+            this.ctx.textAlign = 'center'
+            this.ctx.textBaseline = 'middle'
+            const cx = (x1 + x2) / 2
+            const cy = (y1 + y2) / 2
+            this.ctx.translate(cx, cy)
+            this.ctx.rotate(Math.PI / 2)
+            this.ctx.fillText(aisleLabel, 0, 0)
+            this.ctx.restore()
+          } else if (zone.id === 'aisle-horizontal') {
+            // Horizontal aisle label: small, upper-left corner.
+            this.ctx.font = 'bold 9px sans-serif'
+            this.ctx.textAlign = 'left'
+            this.ctx.textBaseline = 'top'
+            this.ctx.fillText(aisleLabel, x1 + 4, y1 + 4)
+          } else {
+            this.ctx.font = 'bold 11px sans-serif'
+            this.ctx.textAlign = 'center'
+            this.ctx.textBaseline = 'middle'
+            this.ctx.fillText(aisleLabel, (x1 + x2) / 2, (y1 + y2) / 2)
+          }
         }
       }
 
