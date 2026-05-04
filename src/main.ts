@@ -1030,7 +1030,11 @@ function updateConfigFromInputs(): void {
     const rightMaxX = rightSectionCenterX + tableWidth / 2
 
     // Moved tables below the back aisle (at the very bottom of floor)
-    const bottomMaxY = config.length
+    // If rear bleachers are enabled, reserve that bottom strip for bleachers and move bottom elements up.
+    const bottomMaxY = Math.max(
+      0,
+      config.length - (config.minMargin || 0) - (bleachersEnabled ? bleacherDepth : 0)
+    )
     const bottomMinY = bottomMaxY - tableDepth
 
     config.zones.push(
@@ -1087,6 +1091,12 @@ function updateConfigFromInputs(): void {
     // Respect the bottom chamfer (inset) of the gym
     const bottomInset = Math.min(config.width * 0.14, 4)
     const safeMinX = Math.max(aisleStart, bottomInset)
+
+    // If rear bleachers are enabled, reserve that bottom strip for bleachers and move the photobooth up.
+    const bottomMaxY = Math.max(
+      0,
+      config.length - (config.minMargin || 0) - (bleachersEnabled ? bleacherDepth : 0)
+    )
     
     config.zones.push({
       id: 'photobooth',
@@ -1095,8 +1105,8 @@ function updateConfigFromInputs(): void {
       bounds: {
         minX: safeMinX,
         maxX: Math.min(safeMinX + photoboothWidth, config.width - bottomInset),
-        minY: config.length - photoboothDepth,
-        maxY: config.length
+        minY: bottomMaxY - photoboothDepth,
+        maxY: bottomMaxY
       }
     })
   }

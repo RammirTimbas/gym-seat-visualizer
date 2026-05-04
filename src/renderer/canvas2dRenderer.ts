@@ -225,6 +225,11 @@ export class Canvas2DRenderer {
 
     this.drawSeats()
 
+    // Keep bottom elements (medical tables + photobooth) visible above bleachers/seats.
+    if (this.renderOptions.showZones) {
+      this.drawTopZones()
+    }
+
     if (this.layout.seats.length === 0) {
       this.drawEmptyLayoutMessage()
     }
@@ -431,6 +436,11 @@ export class Canvas2DRenderer {
       if (zone.type === ZoneType.AISLE || zone.id.includes('table') || zone.id === 'photobooth') {
         continue
       }
+      // Bleachers are rendered separately (bands + bleacher seats). Drawing BLEACHER zones here
+      // creates a solid orange overlay above the step bands.
+      if (zone.type === ZoneType.BLEACHER) {
+        continue
+      }
       if (zone.id.includes('reserved')) {
         continue
       }
@@ -446,6 +456,7 @@ export class Canvas2DRenderer {
       // Draw zone
       const zoneColor = theme.zone[zone.type as keyof typeof theme.zone]
 
+      this.ctx.save()
       this.ctx.fillStyle = zoneColor
       this.ctx.globalAlpha = 0.3
       this.ctx.fillRect(x1, y1, width, height)
@@ -455,6 +466,7 @@ export class Canvas2DRenderer {
       this.ctx.lineWidth = 2
       this.ctx.globalAlpha = 1
       this.ctx.strokeRect(x1, y1, width, height)
+      this.ctx.restore()
 
       // Draw label (always show stage label; optional for others)
       const zoneLabel = this.getZoneDisplayLabel(zone.id, zone.label)
@@ -561,6 +573,13 @@ export class Canvas2DRenderer {
       this.ctx.restore()
     }
 
+  }
+
+  private drawTopZones(): void {
+    if (!this.layout) return
+
+    const theme = this.colors[this.renderOptions.theme || 'light']
+
     // Draw special zones (Medical tables and Photobooth) on top of everything else
     for (const zone of this.layout.zones) {
       if (!zone.id.includes('table') && zone.id !== 'photobooth') {
@@ -585,9 +604,8 @@ export class Canvas2DRenderer {
 
       this.ctx.save()
       this.clipToGymFootprint()
-      // Use higher alpha so they stand out on top of aisles
       this.ctx.fillStyle = zoneColor
-      this.ctx.globalAlpha = 0.9
+      this.ctx.globalAlpha = 0.92
       this.ctx.fillRect(x1, y1, width, height)
 
       this.ctx.strokeStyle = theme.text
@@ -602,6 +620,7 @@ export class Canvas2DRenderer {
         this.ctx.textBaseline = 'middle'
         this.drawFittingText(zoneLabel, (x1 + x2) / 2, (y1 + y2) / 2, width - 8, height - 8, 13)
       }
+
       this.ctx.restore()
     }
   }
@@ -742,6 +761,8 @@ export class Canvas2DRenderer {
     const stepIndex = Math.max(0, rowSeats[0].metadata.row - 1000)
 
     this.ctx.save()
+    // Keep bleacher visuals (bands + seats) inside the gym footprint (chamfered corners).
+    this.clipToGymFootprint()
     if (
       this.layout.config.shape === GymnasiumShape.RECTANGLE ||
       this.layout.config.shape === GymnasiumShape.SQUARE
@@ -789,16 +810,28 @@ export class Canvas2DRenderer {
     const stage = this.layout.zones.find(zone => zone.type === ZoneType.STAGE)
     const stageMaxY = stage ? stage.bounds.maxY : this.layout.config.minMargin
     const bandThickness = stepDepth
-    const entranceWidth = this.layout.config.bleachers.entranceWidth
+    const requestedEntranceWidth = Number.isFinite(this.layout.config.bleachers.entranceWidth)
+      ? this.layout.config.bleachers.entranceWidth
+      : 2.5
+    const entranceWidth = Math.min(Math.max(requestedEntranceWidth, 0), Math.max(0, maxX - minX - 0.2))
     const entranceStart = (this.layout.config.width - entranceWidth) / 2
     const entranceEnd = entranceStart + entranceWidth
 
     const segments = [
+      // Side bands are drawn for every step.
       { x: minX, y: stageMaxY, width: bandThickness, height: Math.max(0, maxY - stageMaxY) },
-      { x: maxX - bandThickness, y: stageMaxY, width: bandThickness, height: Math.max(0, maxY - stageMaxY) },
+      { x: maxX - bandThickness, y: stageMaxY, width: bandThickness, height: Math.max(0, maxY - stageMaxY) }
+    ]
+
+    // Bottom band is drawn for every step to represent the bleacher steps.
+    segments.push(
       { x: minX, y: maxY - bandThickness, width: Math.max(0, entranceStart - minX), height: bandThickness },
       { x: entranceEnd, y: maxY - bandThickness, width: Math.max(0, maxX - entranceEnd), height: bandThickness }
-    ]
+    )
+
+    // Make sure bleacher visuals respect the gym footprint (chamfered rectangle).
+    this.ctx.save()
+    this.clipToGymFootprint()
 
     this.ctx.fillStyle = theme.zone.bleacher
     this.ctx.globalAlpha = 0.55
@@ -817,6 +850,7 @@ export class Canvas2DRenderer {
       this.ctx.globalAlpha = 0.55
     }
     this.ctx.globalAlpha = 1
+    this.ctx.restore()
   }
 
   private drawConnectedBleacherPath(
@@ -950,6 +984,9 @@ export class Canvas2DRenderer {
 
     for (const zone of this.layout.zones) {
       if (zone.type === ZoneType.AISLE) continue
+      // Bleachers have their own renderer (bands + bleacher seats). Drawing them here too
+      // causes duplicated "rear bleacher strips" visuals.
+      if (zone.type === ZoneType.BLEACHER) continue
       if (zone.id.includes('reserved')) continue
       const width = zone.bounds.maxX - zone.bounds.minX
       const height = zone.bounds.maxY - zone.bounds.minY

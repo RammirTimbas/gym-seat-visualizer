@@ -76,8 +76,10 @@ export class LayoutGenerator {
 
     // Add aisle zones based on config
     this.addAisleZones()
-    // Reserve zones
-    this.reserveZones()
+    // Reserve non-aisle zones first (stage, blocked areas, etc.).
+    // Important: don't reserve aisles yet, otherwise bleacher seats get blocked by aisle "usedArea"
+    // even though we want bleachers to ignore aisles.
+    this.reserveZoneList(this.config.zones.filter(z => z.type !== ZoneType.AISLE && z.type !== ZoneType.BLEACHER))
     // ... rest of generate logic ...
     // Place bleachers and seats (fill all available space)
     let peopleRemaining = Number.POSITIVE_INFINITY
@@ -85,6 +87,9 @@ export class LayoutGenerator {
     if (this.config.bleachers?.enabled) {
       this.placeBleachers(peopleRemaining)
     }
+
+    // After bleachers are placed/reserved, reserve aisles so floor seats respect them.
+    this.reserveZoneList(this.config.zones.filter(z => z.type === ZoneType.AISLE))
 
     // Place faculty seats
     this.placeFacultySeats()
@@ -101,7 +106,34 @@ export class LayoutGenerator {
         this.placeSeatsCircularSmart(peopleRemaining)
         break
     }
+
+    // Safety pass: ensure floor seats never end up inside bleacher footprint.
+    // This can happen near chamfered corners if zone math/drift changes; bleachers should be exclusive.
+    this.removeNonBleacherSeatsInsideBleachers()
     return this.buildOutput()
+  }
+
+  private removeNonBleacherSeatsInsideBleachers(): void {
+    const bleacherZones = this.config.zones.filter(z => z.type === ZoneType.BLEACHER)
+    if (bleacherZones.length === 0) return
+
+    this.seats = this.seats.filter(seat => {
+      if (seat.metadata.bleacher) return true
+
+      const halfW = seat.dimension.width / 2
+      const halfD = seat.dimension.depth / 2
+      const minX = seat.position.x - halfW
+      const maxX = seat.position.x + halfW
+      const minY = seat.position.y - halfD
+      const maxY = seat.position.y + halfD
+
+      for (const z of bleacherZones) {
+        if (maxX > z.bounds.minX && minX < z.bounds.maxX && maxY > z.bounds.minY && minY < z.bounds.maxY) {
+          return false
+        }
+      }
+      return true
+    })
   }
 
   private getStageMaxY(): number {
@@ -135,6 +167,70 @@ export class LayoutGenerator {
       { x: 0, y: chamferStartY },
       { x: 0, y: 0 }
     ]
+  }
+
+  private getFootprintXSpanAtY(y: number): { minX: number; maxX: number } {
+    const width = this.config.width
+    const length = this.config.length
+    const inset = this.getBottomInset()
+    const chamferStartY = this.getChamferStartY()
+
+    if (y <= chamferStartY) return { minX: 0, maxX: width }
+    if (y >= length) return { minX: inset, maxX: width - inset }
+
+    const t = (y - chamferStartY) / Math.max(length - chamferStartY, 1e-6)
+    const dx = inset * t
+    return { minX: dx, maxX: width - dx }
+  }
+
+  private clampBoundsToFootprint(bounds: Zone['bounds']): Zone['bounds'][] {
+    // For rectangle/square, the "gym floor" is a chamfered polygon (see getFloorPolygon).
+    // Zones are axis-aligned rectangles, so we approximate intersection by splitting at the
+    // chamfer start and clamping the lower part's X span to the polygon at that Y.
+    //
+    // To better match the diagonal chamfer edge (visually and for collision), we slice the
+    // lower part into a few horizontal bands and clamp each band independently.
+    if (
+      this.config.shape !== GymnasiumShape.RECTANGLE &&
+      this.config.shape !== GymnasiumShape.SQUARE
+    ) {
+      return [bounds]
+    }
+
+    const chamferStartY = this.getChamferStartY()
+
+    if (bounds.maxY <= chamferStartY) return [bounds]
+
+    const results: Zone['bounds'][] = []
+
+    // Top part (no chamfer)
+    if (bounds.minY < chamferStartY) {
+      results.push({ ...bounds, maxY: chamferStartY })
+    }
+
+    const startY = Math.max(bounds.minY, chamferStartY)
+    const endY = bounds.maxY
+    const totalH = Math.max(0, endY - startY)
+
+    // 3-6 slices depending on height; keeps zone counts sane.
+    const slices = Math.max(3, Math.min(6, Math.ceil(totalH / 0.6)))
+    const sliceH = totalH / Math.max(1, slices)
+
+    for (let i = 0; i < slices; i++) {
+      const y0 = startY + i * sliceH
+      const y1 = i === slices - 1 ? endY : startY + (i + 1) * sliceH
+      if (y1 - y0 <= 1e-6) continue
+
+      const span = this.getFootprintXSpanAtY(y1)
+      results.push({
+        minX: Math.max(bounds.minX, span.minX),
+        maxX: Math.min(bounds.maxX, span.maxX),
+        minY: y0,
+        maxY: y1
+      })
+    }
+
+    return results
   }
 
   private getBleacherDepth(): number {
@@ -210,12 +306,16 @@ export class LayoutGenerator {
 
   private getUsableFloorBounds() {
     const bleacherDepth = this.getBleacherDepth()
-    const bottomBlocked = this.getBottomBlockedDepth()
     const facultyWidth = this.getFacultyWidth()
     const minX = this.config.minMargin + bleacherDepth + facultyWidth + this.config.aisles.side
     const maxX = this.config.width - this.config.minMargin - bleacherDepth - facultyWidth - this.config.aisles.side
     const minY = Math.max(this.config.minMargin, this.getStageMaxY()) + this.config.aisles.front
-    const maxY = this.config.length - this.config.minMargin - bleacherDepth - this.config.aisles.back - bottomBlocked
+    // Important: don't subtract bleacherDepth from maxY. Bleachers only block the bottom corners + side bands,
+    // and those are represented as zones. Subtracting bleacherDepth here creates a large empty band above the
+    // back aisle where seats could otherwise fit.
+    // Also: don't subtract bottomBlocked here; the actual blocked zones at the bottom (tables/photobooth)
+    // will prevent overlap, without shrinking the entire seating region.
+    const maxY = this.config.length - this.config.minMargin - this.config.aisles.back
 
     return { minX, maxX, minY, maxY }
   }
@@ -344,18 +444,18 @@ export class LayoutGenerator {
     const config = this.config.bleachers
     if (!config?.enabled || config.width <= 0) return []
 
-    const bottomBlocked = this.getBottomBlockedDepth();
     const minX = this.config.minMargin
     const maxX = this.config.width - this.config.minMargin
     const minY = Math.max(this.config.minMargin, this.getStageMaxY())
-    const maxY = this.config.length - this.config.minMargin - bottomBlocked
+    // Bleachers own the bottom strip; bottom elements (photobooth/medical) are moved upward when bleachers are enabled.
+    const maxY = this.config.length - this.config.minMargin
     const depth = Math.min(config.width, Math.max(0, (maxX - minX) / 2 - 0.1))
     const requestedEntranceWidth = Number.isFinite(config.entranceWidth) ? config.entranceWidth : 2.5
     const entranceWidth = Math.min(Math.max(requestedEntranceWidth, 0), Math.max(0, maxX - minX - 0.2))
     const entranceStart = (this.config.width - entranceWidth) / 2
     const entranceEnd = entranceStart + entranceWidth
 
-    const zones: Zone[] = [
+    const rawZones: Zone[] = [
       {
         id: 'bleacher-left',
         type: ZoneType.BLEACHER,
@@ -368,6 +468,7 @@ export class LayoutGenerator {
         bounds: { minX: maxX - depth, maxX, minY, maxY },
         label: 'Bleachers'
       },
+      // Bottom bleachers: place them above bottomBlocked area, and carve out any explicit bottom blocked rectangles.
       {
         id: 'bleacher-bottom-left',
         type: ZoneType.BLEACHER,
@@ -382,20 +483,78 @@ export class LayoutGenerator {
       }
     ]
 
-    return zones.filter(
-      zone =>
-        zone.bounds.maxX - zone.bounds.minX > 0.1 &&
-        zone.bounds.maxY - zone.bounds.minY > 0.1
-    )
+    const zones: Zone[] = []
+    for (const zone of rawZones) {
+      let clampedBoundsList = this.clampBoundsToFootprint(zone.bounds)
+
+      // Subtract explicit bottom blocked rectangles from bottom bleacher bands so they don't overlap tables/photobooth.
+      if (zone.id.startsWith('bleacher-bottom')) {
+        const blockers = this.config.zones.filter(z =>
+          z.id === 'table-left' || z.id === 'table-right' || z.id === 'photobooth'
+        )
+
+        if (blockers.length > 0) {
+          const next: Zone['bounds'][] = []
+          for (const b of clampedBoundsList) {
+            // For each blocker, split b into up to 2 rectangles in X if overlap.
+            let currentParts: Zone['bounds'][] = [b]
+            for (const blk of blockers) {
+              const updated: Zone['bounds'][] = []
+              for (const part of currentParts) {
+                const overlaps =
+                  part.minX < blk.bounds.maxX &&
+                  part.maxX > blk.bounds.minX &&
+                  part.minY < blk.bounds.maxY &&
+                  part.maxY > blk.bounds.minY
+
+                if (!overlaps) {
+                  updated.push(part)
+                  continue
+                }
+
+                // If blocker intersects, keep left remainder and right remainder (same Y span).
+                const left: Zone['bounds'] = {
+                  minX: part.minX,
+                  maxX: Math.min(part.maxX, blk.bounds.minX),
+                  minY: part.minY,
+                  maxY: part.maxY
+                }
+                const right: Zone['bounds'] = {
+                  minX: Math.max(part.minX, blk.bounds.maxX),
+                  maxX: part.maxX,
+                  minY: part.minY,
+                  maxY: part.maxY
+                }
+
+                if (left.maxX - left.minX > 0.05) updated.push(left)
+                if (right.maxX - right.minX > 0.05) updated.push(right)
+              }
+              currentParts = updated
+              if (currentParts.length === 0) break
+            }
+            next.push(...currentParts)
+          }
+          clampedBoundsList = next
+        }
+      }
+
+      for (let i = 0; i < clampedBoundsList.length; i++) {
+        const b = clampedBoundsList[i]
+        zones.push({
+          ...zone,
+          // Keep ids stable but unique if split
+          id: clampedBoundsList.length > 1 ? `${zone.id}__${i}` : zone.id,
+          bounds: b
+        })
+      }
+    }
+
+    return zones.filter(z => z.bounds.maxX - z.bounds.minX > 0.1 && z.bounds.maxY - z.bounds.minY > 0.1)
   }
 
   /**
    * Reserve blocked areas (stage, VIP, etc.)
    */
-  private reserveZones(): void {
-    this.reserveZoneList(this.config.zones)
-  }
-
   private reserveZoneList(zones: Zone[]): void {
     for (const zone of zones) {
       // Mark zone area as occupied in the grid
@@ -441,12 +600,20 @@ export class LayoutGenerator {
     const stageMaxY = this.getStageMaxY()
     const minX = this.config.minMargin
     const maxX = this.config.width - this.config.minMargin
-    const bottomBlocked = this.getBottomBlockedDepth()
-    const maxY = this.config.length - this.config.minMargin - bottomBlocked
-    const entranceStart = (this.config.width - config.entranceWidth) / 2
-    const entranceEnd = entranceStart + config.entranceWidth
+    // Bleachers are allowed to occupy the bottom strip; bottom elements are moved upward when bleachers are enabled.
+    const maxY = this.config.length - this.config.minMargin
+    const requestedEntranceWidth = Number.isFinite(config.entranceWidth) ? config.entranceWidth : 2.5
+    const entranceWidth = Math.min(Math.max(requestedEntranceWidth, 0), Math.max(0, maxX - minX - 0.2))
+    const entranceStart = (this.config.width - entranceWidth) / 2
+    const entranceEnd = entranceStart + entranceWidth
     const pitch = seatType.width + this.config.horizontalSpacing
+    const aisleCount = Math.max(0, Math.floor(config.aisleCount || 0))
+    const bleacherAisleWidth = Math.max(0.8, seatType.width + this.config.horizontalSpacing)
     let placed = 0
+
+    // Add bleacher zones before placing bleacher seats so we can test membership, but don't reserve them
+    // in usedArea until after bleacher seats are placed (otherwise we'd block our own placement).
+    this.config.zones.push(...bleacherZones)
 
     for (let step = 0; step < config.numberOfSteps; step++) {
       if (peopleToAllocate > 0 && placed >= peopleToAllocate) break
@@ -481,9 +648,88 @@ export class LayoutGenerator {
           const x = segment.kind === 'bottom' ? coord : segment.fixed
           const y = segment.kind === 'bottom' ? segment.fixed : coord
 
-          if (!this.isPositionBlocked(x, y, bleacherSeatType) && this.pointInShape(x, y)) {
+          const inBleacherAisle = (() => {
+            if (aisleCount <= 0) return false
+
+            // Side bleacher aisles: horizontal gaps in the vertical run (apply equally to left and right sides)
+            if (segment.kind === 'left' || segment.kind === 'right') {
+              const minY = Math.min(segment.start, segment.end)
+              const maxY = Math.max(segment.start, segment.end)
+              const usable = Math.max(0, maxY - minY)
+              if (usable <= 0.2) return false
+
+              for (let i = 1; i <= aisleCount; i++) {
+                const center = minY + (usable * i) / (aisleCount + 1)
+                if (Math.abs(y - center) <= bleacherAisleWidth / 2) return true
+              }
+              return false
+            }
+
+            // Rear bleacher aisles: vertical gaps in the bottom run, centered with the entrance considered.
+            // We distribute aisles across left/right bottom segments symmetrically.
+            const isLeftBottom = segment.end <= entranceStart - seatType.width / 2 + 1e-6
+            const isRightBottom = segment.start >= entranceEnd + seatType.width / 2 - 1e-6
+            if (!isLeftBottom && !isRightBottom) return false
+
+            const leftCount = Math.ceil(aisleCount / 2)
+            const rightCount = Math.floor(aisleCount / 2)
+            const countForThisSegment = isLeftBottom ? leftCount : rightCount
+            if (countForThisSegment <= 0) return false
+
+            const minX = Math.min(segment.start, segment.end)
+            const maxX = Math.max(segment.start, segment.end)
+            const usable = Math.max(0, maxX - minX)
+            if (usable <= 0.2) return false
+
+            for (let i = 1; i <= countForThisSegment; i++) {
+              const center = minX + (usable * i) / (countForThisSegment + 1)
+              if (Math.abs(x - center) <= bleacherAisleWidth / 2) return true
+            }
+            return false
+          })()
+
+          // Ensure bleacher seats are exclusive to the current bleacher step band (left, right, or bottom).
+          // This is stricter and matches what we draw as bleacher steps.
+          const halfW = bleacherSeatType.width / 2
+          const halfD = bleacherSeatType.depth / 2
+
+          const bandLeftMinX = minX + stepDepth * step
+          const bandLeftMaxX = minX + stepDepth * (step + 1)
+          const bandRightMinX = maxX - stepDepth * (step + 1)
+          const bandRightMaxX = maxX - stepDepth * step
+          const bandBottomMinY = maxY - stepDepth * (step + 1)
+          const bandBottomMaxY = maxY - stepDepth * step
+
+          const inLeftBand =
+            x - halfW >= bandLeftMinX &&
+            x + halfW <= bandLeftMaxX &&
+            y - halfD >= stageMaxY &&
+            y + halfD <= maxY
+
+          const inRightBand =
+            x - halfW >= bandRightMinX &&
+            x + halfW <= bandRightMaxX &&
+            y - halfD >= stageMaxY &&
+            y + halfD <= maxY
+
+          const inBottomBand =
+            y - halfD >= bandBottomMinY &&
+            y + halfD <= bandBottomMaxY &&
+            x - halfW >= minX &&
+            x + halfW <= maxX &&
+            (x + halfW <= entranceStart || x - halfW >= entranceEnd)
+
+          const inBleacherZone = inLeftBand || inRightBand || inBottomBand
+
+          if (
+            !inBleacherAisle &&
+            inBleacherZone &&
+            !this.isPositionBlocked(x, y, bleacherSeatType) &&
+            this.pointInShape(x, y)
+          ) {
             const seat = this.createSeat(x, y, rowNumber, positionInRow, bleacherSeatType)
-            seat.metadata.seatNumber = `${positionInRow + 1}`
+            // Prefix with step index to avoid duplicate numbers across steps/rows.
+            seat.metadata.seatNumber = `B${step + 1}-${positionInRow + 1}`
             seat.metadata.bleacher = true
             this.seats.push(seat)
             this.markAreaAsUsed(x, y, bleacherSeatType.width, bleacherSeatType.depth)
@@ -504,7 +750,7 @@ export class LayoutGenerator {
       }
     }
 
-    this.config.zones.push(...bleacherZones)
+    // After placing bleacher seats, reserve the bleacher footprint so floor seats don't overlap it.
     this.reserveZoneList(bleacherZones)
     return placed
   }
@@ -747,6 +993,15 @@ export class LayoutGenerator {
     const epsilon = 0.001 // 1mm buffer to handle precision issues
     // Check against zones
     for (const zone of this.config.zones) {
+      // Bleacher seats are allowed to exist inside bleacher zones (that's the whole point).
+      // For all other seat types, bleacher zones remain blocking.
+      if (seatType.type === SeatType.BLEACHER && zone.type === ZoneType.BLEACHER) {
+        continue
+      }
+      // Bleacher seating should not be constrained by floor aisles; aisles apply to floor seating area.
+      if (seatType.type === SeatType.BLEACHER && zone.type === ZoneType.AISLE) {
+        continue
+      }
       if (
         x - seatType.width / 2 < zone.bounds.maxX - epsilon &&
         x + seatType.width / 2 > zone.bounds.minX + epsilon &&
