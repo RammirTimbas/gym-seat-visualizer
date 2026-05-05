@@ -354,6 +354,7 @@ export class LayoutGenerator {
     const stageMaxY = Math.max(0, this.getStageMaxY())
     const bleacherDepth = this.getBleacherDepth()
     const facultyWidth = this.getFacultyWidth()
+    const rearLimitY = this.config.length - this.config.minMargin - bleacherDepth
 
     // Check for Tables at the bottom to avoid overlap
     const bottomBlocked = this.getBottomBlockedDepth();
@@ -402,14 +403,16 @@ export class LayoutGenerator {
     }
 
     if (back > 0) {
+      const backAisleMaxY = Math.max(stageMaxY, rearLimitY - bottomBlocked)
+      const backAisleMinY = Math.max(stageMaxY, backAisleMaxY - back)
       this.config.zones.push({
         id: 'aisle-back',
         type: ZoneType.AISLE,
         bounds: {
           minX: this.config.minMargin + bleacherDepth + facultyWidth + side,
           maxX: this.config.width - this.config.minMargin - bleacherDepth - facultyWidth - side,
-          minY: this.config.length - bottomBlocked - back,
-          maxY: this.config.length - bottomBlocked
+          minY: backAisleMinY,
+          maxY: backAisleMaxY
         },
         label: 'Back Aisle'
       })
@@ -417,7 +420,7 @@ export class LayoutGenerator {
 
     if (carpet > 0) {
       const minY = stageMaxY + front
-      const maxY = this.config.length - back - bottomBlocked
+      const maxY = rearLimitY - back - bottomBlocked
       if (maxY > minY) {
         this.config.zones.push({
           id: 'aisle-carpet',
@@ -436,7 +439,7 @@ export class LayoutGenerator {
     // Horizontal (cross) aisle centered in usable floor height
     if (horizontal > 0) {
       const usableMinY = stageMaxY + front
-      const usableMaxY = this.config.length - back - bottomBlocked
+      const usableMaxY = rearLimitY - back - bottomBlocked
       if (usableMaxY > usableMinY + 0.05) {
         const centerY = (usableMinY + usableMaxY) / 2
         const aisleMinY = Math.max(usableMinY, centerY - horizontal / 2)
