@@ -223,6 +223,9 @@ export class Canvas2DRenderer {
     // Draw gym dimensions (if no stage present)
     this.drawGymDimensions()
 
+    const theme = this.colors[this.renderOptions.theme || 'light']
+    this.drawAllBleacherBands(theme)
+
     this.drawSeats()
 
     // Keep bottom elements (medical tables + photobooth) visible above bleachers/seats.
@@ -752,23 +755,36 @@ export class Canvas2DRenderer {
     this.ctx.globalAlpha = 1
   }
 
+  private getBleacherDepth(): number {
+    if (!this.layout?.config?.bleachers) return 0
+    
+    const config = this.layout.config.bleachers
+    const seatType = this.layout.config.seatTypes[0]
+    const minStepDepth = seatType ? seatType.depth + 0.1 : 0.6
+    const totalSteps = config.numberOfSteps + 1
+    const minRequiredWidth = totalSteps * minStepDepth
+    
+    return Math.max(config.width, minRequiredWidth)
+  }
+
   private drawBleacherRow(rowSeats: Seat[], theme: (typeof this.colors)['light']): void {
     if (rowSeats.length === 0 || !this.layout?.config?.bleachers) return
 
     const scale = this.renderContext.scale
-    const stepDepth = this.layout.config.bleachers.stepDepth * scale
+    const totalPhysicalSteps = this.layout.config.bleachers.numberOfSteps + 1
+    const bleacherDepth = this.getBleacherDepth()
+    const stepDepth = (bleacherDepth / Math.max(totalPhysicalSteps, 1)) * scale
     const orderedSeats = this.orderBleacherRowSeats(rowSeats)
-    const stepIndex = Math.max(0, rowSeats[0].metadata.row - 1000)
 
     this.ctx.save()
     // Keep bleacher visuals (bands + seats) inside the gym footprint (chamfered corners).
     this.clipToGymFootprint()
+    
+    // Band rendering is now handled by drawAllBleacherBands
     if (
-      this.layout.config.shape === GymnasiumShape.RECTANGLE ||
-      this.layout.config.shape === GymnasiumShape.SQUARE
+      this.layout.config.shape !== GymnasiumShape.RECTANGLE &&
+      this.layout.config.shape !== GymnasiumShape.SQUARE
     ) {
-      this.drawRectangularBleacherBand(stepIndex, theme)
-    } else {
       this.drawConnectedBleacherPath(orderedSeats, stepDepth, theme)
     }
 
@@ -799,11 +815,29 @@ export class Canvas2DRenderer {
     this.ctx.restore()
   }
 
+  private drawAllBleacherBands(theme: (typeof this.colors)['light']): void {
+    if (!this.layout?.config?.bleachers) return
+    
+    if (
+      this.layout.config.shape === GymnasiumShape.RECTANGLE ||
+      this.layout.config.shape === GymnasiumShape.SQUARE
+    ) {
+      const totalPhysicalSteps = this.layout.config.bleachers.numberOfSteps + 1
+      for (let i = 0; i < totalPhysicalSteps; i++) {
+        this.drawRectangularBleacherBand(i, theme)
+      }
+    }
+    // Note: Oval/Circle connected paths still depend on seat rows for geometry
+  }
+
   private drawRectangularBleacherBand(stepIndex: number, theme: (typeof this.colors)['light']): void {
     if (!this.layout?.config?.bleachers) return
 
     const scale = this.renderContext.scale
-    const stepDepth = this.layout.config.bleachers.stepDepth
+    const totalPhysicalSteps = this.layout.config.bleachers.numberOfSteps + 1
+    const bleacherDepth = this.getBleacherDepth()
+    const stepDepth = bleacherDepth / Math.max(totalPhysicalSteps, 1)
+    
     const outerMinX = this.layout.config.minMargin
     const outerMaxX = this.layout.config.width - this.layout.config.minMargin
     const outerMaxY = this.layout.config.length - this.layout.config.minMargin

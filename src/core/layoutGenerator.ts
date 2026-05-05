@@ -68,19 +68,49 @@ export class LayoutGenerator {
    * Generate complete layout
    */
 
+  private shiftBottomZones(): void {
+    const bleacherDepth = this.getBleacherDepth()
+    if (bleacherDepth <= 0) return
+
+    const margin = this.config.minMargin
+    const gymLength = this.config.length
+    
+    // The "base" for bottom elements should be the top edge of the bleacher footprint
+    const bleacherTopY = gymLength - margin - bleacherDepth
+
+    this.config.zones = this.config.zones.map(zone => {
+      const id = zone.id.toLowerCase()
+      if (id === 'photobooth' || id.startsWith('table')) {
+        const height = zone.bounds.maxY - zone.bounds.minY
+        // Move zone so its maxY is at the bleacher's top edge
+        return {
+          ...zone,
+          bounds: {
+            ...zone.bounds,
+            minY: bleacherTopY - height,
+            maxY: bleacherTopY
+          }
+        }
+      }
+      return zone
+    })
+  }
+
   generate(): LayoutOutput {
     this.seats = []
     this.usedArea.clear()
     this.leftCounter = 0
     this.rightCounter = 0
 
+    // Adjust bottom zones to sit on top of bleachers
+    this.shiftBottomZones()
+
     // Add aisle zones based on config
     this.addAisleZones()
-    // Reserve non-aisle zones first (stage, blocked areas, etc.).
-    // Important: don't reserve aisles yet, otherwise bleacher seats get blocked by aisle "usedArea"
-    // even though we want bleachers to ignore aisles.
-    this.reserveZoneList(this.config.zones.filter(z => z.type !== ZoneType.AISLE && z.type !== ZoneType.BLEACHER))
-    // ... rest of generate logic ...
+    
+    // Reserve STAGE first (bleachers must respect the stage)
+    this.reserveZoneList(this.config.zones.filter(z => z.type === ZoneType.STAGE))
+
     // Place bleachers and seats (fill all available space)
     let peopleRemaining = Number.POSITIVE_INFINITY
 
@@ -88,7 +118,14 @@ export class LayoutGenerator {
       this.placeBleachers(peopleRemaining)
     }
 
-    // After bleachers are placed/reserved, reserve aisles so floor seats respect them.
+    // After bleachers are placed, reserve OTHER non-aisle zones (photobooth, medical, etc.)
+    // and then aisles so floor seats respect them.
+    this.reserveZoneList(this.config.zones.filter(z => 
+      z.type !== ZoneType.AISLE && 
+      z.type !== ZoneType.BLEACHER && 
+      z.type !== ZoneType.STAGE
+    ))
+    
     this.reserveZoneList(this.config.zones.filter(z => z.type === ZoneType.AISLE))
 
     // Place faculty seats
@@ -256,7 +293,14 @@ export class LayoutGenerator {
 
   private getBleacherDepth(): number {
     if (!this.config.bleachers?.enabled) return 0
-    return Math.max(0, this.config.bleachers.width)
+    
+    const config = this.config.bleachers
+    const seatType = this.config.seatTypes[0]
+    const minStepDepth = seatType ? seatType.depth + 0.1 : 0.6 // Minimum depth to fit a seat comfortably
+    const totalSteps = config.numberOfSteps + 1 // Including the aisle step
+    const minRequiredWidth = totalSteps * minStepDepth
+    
+    return Math.max(config.width, minRequiredWidth)
   }
 
   private getBottomBlockedDepth(): number {
@@ -285,12 +329,10 @@ export class LayoutGenerator {
     if (facultyCount <= 0) return null
 
     const seatType = this.config.seatTypes[0]
-    const bleacherDepth = this.getBleacherDepth()
-    const bottomBlocked = this.getBottomBlockedDepth()
     
     // Usable length for faculty rows (same as floor seats)
     const minY = Math.max(this.config.minMargin, this.getStageMaxY()) + this.config.aisles.front
-    const maxY = this.config.length - this.config.minMargin - bleacherDepth - this.config.aisles.back - bottomBlocked
+    const maxY = this.getBackAisleMinY()
     const usableLength = maxY - minY
 
     if (usableLength <= 0) return null
@@ -325,18 +367,26 @@ export class LayoutGenerator {
     }
   }
 
+  private getBackAisleMinY(): number {
+    const { back } = this.config.aisles
+    const stageMaxY = this.getStageMaxY()
+    const bleacherDepth = this.getBleacherDepth()
+    const bottomBlocked = this.getBottomBlockedDepth()
+    const rearLimitY = this.config.length - this.config.minMargin - bleacherDepth
+    
+    // The back aisle ends where the shifted bottom obstacles (photobooth/tables) begin.
+    const backAisleMaxY = Math.max(stageMaxY, rearLimitY - bottomBlocked)
+    return Math.max(stageMaxY, backAisleMaxY - back)
+  }
+
   private getUsableFloorBounds() {
     const bleacherDepth = this.getBleacherDepth()
-    const facultyWidth = this.getFacultyWidth()
-    const minX = this.config.minMargin + bleacherDepth + facultyWidth + this.config.aisles.side
-    const maxX = this.config.width - this.config.minMargin - bleacherDepth - facultyWidth - this.config.aisles.side
+    // Floor seats only need to respect the side bleachers and side aisles.
+    // Faculty seats are row-dependent and handled by the usedArea collision grid.
+    const minX = this.config.minMargin + bleacherDepth + this.config.aisles.side
+    const maxX = this.config.width - this.config.minMargin - bleacherDepth - this.config.aisles.side
     const minY = Math.max(this.config.minMargin, this.getStageMaxY()) + this.config.aisles.front
-    // Important: don't subtract bleacherDepth from maxY. Bleachers only block the bottom corners + side bands,
-    // and those are represented as zones. Subtracting bleacherDepth here creates a large empty band above the
-    // back aisle where seats could otherwise fit.
-    // Also: don't subtract bottomBlocked here; the actual blocked zones at the bottom (tables/photobooth)
-    // will prevent overlap, without shrinking the entire seating region.
-    const maxY = this.config.length - this.config.minMargin - this.config.aisles.back
+    const maxY = this.getBackAisleMinY()
 
     return { minX, maxX, minY, maxY }
   }
@@ -403,8 +453,8 @@ export class LayoutGenerator {
     }
 
     if (back > 0) {
+      const backAisleMinY = this.getBackAisleMinY()
       const backAisleMaxY = Math.max(stageMaxY, rearLimitY - bottomBlocked)
-      const backAisleMinY = Math.max(stageMaxY, backAisleMaxY - back)
       this.config.zones.push({
         id: 'aisle-back',
         type: ZoneType.AISLE,
@@ -420,7 +470,7 @@ export class LayoutGenerator {
 
     if (carpet > 0) {
       const minY = stageMaxY + front
-      const maxY = rearLimitY - back - bottomBlocked
+      const maxY = this.getBackAisleMinY()
       if (maxY > minY) {
         this.config.zones.push({
           id: 'aisle-carpet',
@@ -439,7 +489,7 @@ export class LayoutGenerator {
     // Horizontal (cross) aisle centered in usable floor height
     if (horizontal > 0) {
       const usableMinY = stageMaxY + front
-      const usableMaxY = rearLimitY - back - bottomBlocked
+      const usableMaxY = this.getBackAisleMinY()
       if (usableMaxY > usableMinY + 0.05) {
         const centerY = (usableMinY + usableMaxY) / 2
         const aisleMinY = Math.max(usableMinY, centerY - horizontal / 2)
@@ -466,14 +516,15 @@ export class LayoutGenerator {
 
   private buildBleacherZones(): Zone[] {
     const config = this.config.bleachers
-    if (!config?.enabled || config.width <= 0) return []
+    const bleacherDepth = this.getBleacherDepth()
+    if (!config?.enabled || bleacherDepth <= 0) return []
 
     const minX = this.config.minMargin
     const maxX = this.config.width - this.config.minMargin
     const minY = Math.max(this.config.minMargin, this.getStageMaxY())
     // Bleachers own the bottom strip; bottom elements (photobooth/medical) are moved upward when bleachers are enabled.
     const maxY = this.config.length - this.config.minMargin
-    const depth = Math.min(config.width, Math.max(0, (maxX - minX) / 2 - 0.1))
+    const depth = Math.min(bleacherDepth, Math.max(0, (maxX - minX) / 2 - 0.1))
     const requestedEntranceWidth = Number.isFinite(config.entranceWidth) ? config.entranceWidth : 2.5
     const entranceWidth = Math.min(Math.max(requestedEntranceWidth, 0), Math.max(0, maxX - minX - 0.2))
     const entranceStart = (this.config.width - entranceWidth) / 2
@@ -619,7 +670,12 @@ export class LayoutGenerator {
     const bleacherZones = this.buildBleacherZones()
     if (bleacherZones.length === 0) return 0
 
-    const stepDepth = config.width / Math.max(config.numberOfSteps, 1)
+    const bleacherDepth = this.getBleacherDepth()
+    // Add an extra step that will serve as a central aisle (empty of seats)
+    const totalPhysicalSteps = config.numberOfSteps + 1
+    const stepDepth = bleacherDepth / Math.max(totalPhysicalSteps, 1)
+    const aisleStepIndex = Math.floor(totalPhysicalSteps / 2)
+
     const bleacherSeatType = { ...seatType, type: SeatType.BLEACHER }
     const stageMaxY = this.getStageMaxY()
     const minX = this.config.minMargin
@@ -737,8 +793,11 @@ export class LayoutGenerator {
       })
     }
 
-    for (let step = 0; step < config.numberOfSteps; step++) {
+    for (let step = 0; step < totalPhysicalSteps; step++) {
       if (peopleToAllocate > 0 && placed >= peopleToAllocate) break
+      
+      // Skip seat placement for the aisle step
+      if (step === aisleStepIndex) continue
 
       const rowNumber = 1000 + step
       let positionInRow = 0
@@ -842,31 +901,33 @@ export class LayoutGenerator {
           const bandBottomMinY = maxY - stepDepth * (step + 1)
           const bandBottomMaxY = maxY - stepDepth * step
 
+          // Lenient checks: allow seats to fit even if stepDepth is slightly smaller than seat depth/width.
+          // We center the seat on the physical step but check if its center is within the step bounds (with tolerance).
+          const epsilon = 0.05 // 5cm tolerance
           const inLeftBand =
-            x - halfW >= bandLeftMinX &&
-            x + halfW <= bandLeftMaxX &&
-            y - halfD >= stageMaxY &&
-            y + halfD <= maxY
+            x >= bandLeftMinX - epsilon &&
+            x <= bandLeftMaxX + epsilon &&
+            y >= stageMaxY - epsilon &&
+            y <= maxY + epsilon
 
           const inRightBand =
-            x - halfW >= bandRightMinX &&
-            x + halfW <= bandRightMaxX &&
-            y - halfD >= stageMaxY &&
-            y + halfD <= maxY
+            x >= bandRightMinX - epsilon &&
+            x <= bandRightMaxX + epsilon &&
+            y >= stageMaxY - epsilon &&
+            y <= maxY + epsilon
 
           const inBottomBand =
-            y - halfD >= bandBottomMinY &&
-            y + halfD <= bandBottomMaxY &&
-            x - halfW >= minX &&
-            x + halfW <= maxX &&
-            (x + halfW <= entranceStart || x - halfW >= entranceEnd)
+            y >= bandBottomMinY - epsilon &&
+            y <= bandBottomMaxY + epsilon &&
+            x >= minX - epsilon &&
+            x <= maxX + epsilon &&
+            (x <= entranceStart + epsilon || x >= entranceEnd - epsilon)
 
           const inBleacherZone = inLeftBand || inRightBand || inBottomBand
 
           if (
             !inBleacherAisle &&
             inBleacherZone &&
-            isSeatFullyInsideAnyBleacherZone(x, y, bleacherSeatType) &&
             !this.isPositionBlocked(x, y, bleacherSeatType) &&
             this.pointInShape(x, y)
           ) {
