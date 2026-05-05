@@ -254,6 +254,10 @@ function setupDOM(): void {
                   <input id="bleachers-aisles" type="number" min="0" step="1" style="width:70px;" />
                 </div>
                 <div class="input-with-label">
+                  <span class="field-label">Aisle W (m)</span>
+                  <input id="bleachers-aisle-width" type="number" min="0" step="0.1" style="width:92px;" />
+                </div>
+                <div class="input-with-label">
                   <span class="field-label">Depth (m)</span>
                   <input id="bleachers-width" type="number" min="0.5" step="0.1" style="width:80px;" />
                 </div>
@@ -766,6 +770,7 @@ function setInputsFromConfig(config: any): void {
   ;(document.getElementById('bleachers-enabled') as HTMLInputElement).checked = config.bleachers?.enabled || false
   ;(document.getElementById('bleachers-steps') as HTMLInputElement).value = config.bleachers?.numberOfSteps || ''
   ;(document.getElementById('bleachers-aisles') as HTMLInputElement).value = config.bleachers?.aisleCount ?? 0
+  ;(document.getElementById('bleachers-aisle-width') as HTMLInputElement).value = config.bleachers?.aisleWidth ?? 0
   ;(document.getElementById('bleachers-width') as HTMLInputElement).value = config.bleachers?.width || ''
   ;(document.getElementById('bleachers-entrance-width') as HTMLInputElement).value = config.bleachers?.entranceWidth ?? 2.5
 
@@ -898,6 +903,7 @@ function updateConfigFromInputs(): void {
   const bleachersEnabled = (document.getElementById('bleachers-enabled') as HTMLInputElement).checked
   const bleachersSteps = parseInt((document.getElementById('bleachers-steps') as HTMLInputElement).value, 10)
   const bleachersAisles = parseInt((document.getElementById('bleachers-aisles') as HTMLInputElement).value, 10)
+  const bleachersAisleWidth = parseFloat((document.getElementById('bleachers-aisle-width') as HTMLInputElement).value)
   const bleachersWidth = parseFloat((document.getElementById('bleachers-width') as HTMLInputElement).value)
   const bleachersEntranceWidth = parseFloat((document.getElementById('bleachers-entrance-width') as HTMLInputElement).value)
 
@@ -944,6 +950,7 @@ function updateConfigFromInputs(): void {
   if (bleachersEnabled) {
     if (isNaN(bleachersSteps) || bleachersSteps < 1) errors.push('Bleacher steps must be 1 or more')
     if (isNaN(bleachersAisles) || bleachersAisles < 0) errors.push('Bleacher aisles must be 0 or more')
+    if (isNaN(bleachersAisleWidth) || bleachersAisleWidth < 0) errors.push('Bleacher aisle width must be 0 or more')
     if (isNaN(bleachersWidth) || bleachersWidth < 0.5) errors.push('Bleacher depth must be at least 0.5m')
     if (isNaN(bleachersEntranceWidth) || bleachersEntranceWidth < 0.5) errors.push('Bleacher entrance width must be at least 0.5m')
     if (!isNaN(width) && bleachersWidth >= width / 2) errors.push('Bleacher depth must leave usable floor space')
@@ -981,6 +988,7 @@ function updateConfigFromInputs(): void {
   config.bleachers.stepDepth =
     config.bleachers.numberOfSteps > 0 ? config.bleachers.width / config.bleachers.numberOfSteps : config.bleachers.width
   config.bleachers.aisleCount = Number.isNaN(bleachersAisles) ? 0 : bleachersAisles
+  config.bleachers.aisleWidth = Number.isNaN(bleachersAisleWidth) ? 0 : bleachersAisleWidth
   config.bleachers.entranceWidth = Number.isNaN(bleachersEntranceWidth) ? 2.5 : bleachersEntranceWidth
 
   // Calculate estimated faculty width to push other elements

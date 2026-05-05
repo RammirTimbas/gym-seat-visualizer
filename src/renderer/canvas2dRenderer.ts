@@ -804,6 +804,9 @@ export class Canvas2DRenderer {
 
     const scale = this.renderContext.scale
     const stepDepth = this.layout.config.bleachers.stepDepth
+    const outerMinX = this.layout.config.minMargin
+    const outerMaxX = this.layout.config.width - this.layout.config.minMargin
+    const outerMaxY = this.layout.config.length - this.layout.config.minMargin
     const minX = this.layout.config.minMargin + stepIndex * stepDepth
     const maxX = this.layout.config.width - this.layout.config.minMargin - stepIndex * stepDepth
     const maxY = this.layout.config.length - this.layout.config.minMargin - stepIndex * stepDepth
@@ -813,9 +816,58 @@ export class Canvas2DRenderer {
     const requestedEntranceWidth = Number.isFinite(this.layout.config.bleachers.entranceWidth)
       ? this.layout.config.bleachers.entranceWidth
       : 2.5
-    const entranceWidth = Math.min(Math.max(requestedEntranceWidth, 0), Math.max(0, maxX - minX - 0.2))
+    const entranceWidth = Math.min(
+      Math.max(requestedEntranceWidth, 0),
+      Math.max(0, outerMaxX - outerMinX - 0.2)
+    )
     const entranceStart = (this.layout.config.width - entranceWidth) / 2
     const entranceEnd = entranceStart + entranceWidth
+
+    const aisleCount = Math.max(0, Math.floor(this.layout.config.bleachers.aisleCount || 0))
+    const requestedAisleWidth = Number.isFinite(this.layout.config.bleachers.aisleWidth as number)
+      ? (this.layout.config.bleachers.aisleWidth as number)
+      : 0
+    const seatWidth = this.layout.config.seatTypes?.[0]?.width ?? 0.5
+    const halfSeat = seatWidth / 2
+    const defaultAisleWidth = seatWidth + this.layout.config.horizontalSpacing
+    const aisleWidth = Math.max(0, requestedAisleWidth || defaultAisleWidth)
+    const sideAisleCenters = (() => {
+      if (aisleCount <= 0) return [] as number[]
+      const spanMinY = stageMaxY + halfSeat
+      const spanMaxY = outerMaxY - halfSeat
+      const usable = Math.max(0, spanMaxY - spanMinY)
+      if (usable <= 0.2) return [] as number[]
+      return Array.from({ length: aisleCount }, (_, i) => spanMinY + (usable * (i + 1)) / (aisleCount + 1))
+    })()
+    const bottomAisleCenters = (() => {
+      const result = { left: [] as number[], right: [] as number[] }
+      if (aisleCount <= 0) return result
+
+      const leftCount = Math.ceil(aisleCount / 2)
+      const rightCount = Math.floor(aisleCount / 2)
+
+      const leftMinX = outerMinX + halfSeat
+      const leftMaxX = entranceStart - halfSeat
+      const leftUsable = Math.max(0, leftMaxX - leftMinX)
+      if (leftCount > 0 && leftUsable > 0.2) {
+        result.left = Array.from(
+          { length: leftCount },
+          (_, i) => leftMinX + (leftUsable * (i + 1)) / (leftCount + 1)
+        )
+      }
+
+      const rightMinX = entranceEnd + halfSeat
+      const rightMaxX = outerMaxX - halfSeat
+      const rightUsable = Math.max(0, rightMaxX - rightMinX)
+      if (rightCount > 0 && rightUsable > 0.2) {
+        result.right = Array.from(
+          { length: rightCount },
+          (_, i) => rightMinX + (rightUsable * (i + 1)) / (rightCount + 1)
+        )
+      }
+
+      return result
+    })()
 
     const segments = [
       // Side bands are drawn for every step.
@@ -840,6 +892,98 @@ export class Canvas2DRenderer {
 
     for (const segment of segments) {
       if (segment.width <= 0 || segment.height <= 0) continue
+
+      // Carve bleacher aisles (walking gaps) out of the bleacher band.
+      // Side bands: split along Y. Bottom bands: split along X (respecting entrance gap via segments).
+      if (aisleCount > 0 && aisleWidth > 0) {
+        if (segment.height > segment.width) {
+          // Vertical side band
+          const minYSeg = segment.y
+          const maxYSeg = segment.y + segment.height
+          const gaps = []
+          for (const center of sideAisleCenters) {
+            if (center < minYSeg || center > maxYSeg) continue
+            gaps.push({ min: center - aisleWidth / 2, max: center + aisleWidth / 2 })
+          }
+
+          let cursor = minYSeg
+          for (const g of gaps) {
+            const y0 = Math.max(cursor, minYSeg)
+            const y1 = Math.min(g.min, maxYSeg)
+            if (y1 - y0 > 0.02) {
+              const x = segment.x * scale + this.renderContext.offsetX
+              const y = y0 * scale + this.renderContext.offsetY
+              const w = segment.width * scale
+              const h = (y1 - y0) * scale
+              this.ctx.fillRect(x, y, w, h)
+              this.ctx.globalAlpha = 1
+              this.ctx.strokeRect(x, y, w, h)
+              this.ctx.globalAlpha = 0.55
+            }
+            cursor = Math.min(maxYSeg, g.max)
+          }
+
+          if (maxYSeg - cursor > 0.02) {
+            const x = segment.x * scale + this.renderContext.offsetX
+            const y = cursor * scale + this.renderContext.offsetY
+            const w = segment.width * scale
+            const h = (maxYSeg - cursor) * scale
+            this.ctx.fillRect(x, y, w, h)
+            this.ctx.globalAlpha = 1
+            this.ctx.strokeRect(x, y, w, h)
+            this.ctx.globalAlpha = 0.55
+          }
+
+          continue
+        } else {
+          // Horizontal bottom band
+          const minXSeg = segment.x
+          const maxXSeg = segment.x + segment.width
+          const isLeftBottom = maxXSeg <= entranceStart + 1e-6
+          const isRightBottom = minXSeg >= entranceEnd - 1e-6
+          const gaps = []
+          const centers = isLeftBottom
+            ? bottomAisleCenters.left
+            : isRightBottom
+              ? bottomAisleCenters.right
+              : []
+          for (const center of centers) {
+            if (center < minXSeg || center > maxXSeg) continue
+            gaps.push({ min: center - aisleWidth / 2, max: center + aisleWidth / 2 })
+          }
+
+          let cursor = minXSeg
+          for (const g of gaps) {
+            const x0 = Math.max(cursor, minXSeg)
+            const x1 = Math.min(g.min, maxXSeg)
+            if (x1 - x0 > 0.02) {
+              const x = x0 * scale + this.renderContext.offsetX
+              const y = segment.y * scale + this.renderContext.offsetY
+              const w = (x1 - x0) * scale
+              const h = segment.height * scale
+              this.ctx.fillRect(x, y, w, h)
+              this.ctx.globalAlpha = 1
+              this.ctx.strokeRect(x, y, w, h)
+              this.ctx.globalAlpha = 0.55
+            }
+            cursor = Math.min(maxXSeg, g.max)
+          }
+
+          if (maxXSeg - cursor > 0.02) {
+            const x = cursor * scale + this.renderContext.offsetX
+            const y = segment.y * scale + this.renderContext.offsetY
+            const w = (maxXSeg - cursor) * scale
+            const h = segment.height * scale
+            this.ctx.fillRect(x, y, w, h)
+            this.ctx.globalAlpha = 1
+            this.ctx.strokeRect(x, y, w, h)
+            this.ctx.globalAlpha = 0.55
+          }
+
+          continue
+        }
+      }
+
       const x = segment.x * scale + this.renderContext.offsetX
       const y = segment.y * scale + this.renderContext.offsetY
       const width = segment.width * scale

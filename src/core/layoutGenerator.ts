@@ -183,6 +183,27 @@ export class LayoutGenerator {
     return { minX: dx, maxX: width - dx }
   }
 
+  private getFootprintMaxYAtX(x: number): number {
+    const width = this.config.width
+    const length = this.config.length
+    const inset = this.getBottomInset()
+    const chamferStartY = this.getChamferStartY()
+
+    if (inset <= 1e-6) return length
+
+    if (x <= inset) {
+      const t = Math.max(0, Math.min(1, x / inset))
+      return chamferStartY + t * (length - chamferStartY)
+    }
+
+    if (x >= width - inset) {
+      const t = Math.max(0, Math.min(1, (width - x) / inset))
+      return chamferStartY + t * (length - chamferStartY)
+    }
+
+    return length
+  }
+
   private clampBoundsToFootprint(bounds: Zone['bounds']): Zone['bounds'][] {
     // For rectangle/square, the "gym floor" is a chamfered polygon (see getFloorPolygon).
     // Zones are axis-aligned rectangles, so we approximate intersection by splitting at the
@@ -608,88 +629,206 @@ export class LayoutGenerator {
     const entranceEnd = entranceStart + entranceWidth
     const pitch = seatType.width + this.config.horizontalSpacing
     const aisleCount = Math.max(0, Math.floor(config.aisleCount || 0))
-    const bleacherAisleWidth = Math.max(0.8, seatType.width + this.config.horizontalSpacing)
+    const requestedAisleWidth = Number.isFinite(config.aisleWidth as number) ? (config.aisleWidth as number) : 0
+    const defaultAisleWidth = seatType.width + this.config.horizontalSpacing
+    const bleacherAisleWidth = Math.max(0, requestedAisleWidth || defaultAisleWidth)
     let placed = 0
+    const sideAisleCenters = (() => {
+      if (aisleCount <= 0) return [] as number[]
+      const spanMinY = stageMaxY + seatType.width / 2
+      const spanMaxY = maxY - seatType.width / 2
+      const usable = Math.max(0, spanMaxY - spanMinY)
+      if (usable <= 0.2) return [] as number[]
+      return Array.from({ length: aisleCount }, (_, i) => spanMinY + (usable * (i + 1)) / (aisleCount + 1))
+    })()
+    const bottomAisleCenters = (() => {
+      const result = { left: [] as number[], right: [] as number[] }
+      if (aisleCount <= 0) return result
+
+      const leftCount = Math.ceil(aisleCount / 2)
+      const rightCount = Math.floor(aisleCount / 2)
+
+      const leftMinX = minX + seatType.width / 2
+      const leftMaxX = entranceStart - seatType.width / 2
+      const leftUsable = Math.max(0, leftMaxX - leftMinX)
+      if (leftCount > 0 && leftUsable > 0.2) {
+        result.left = Array.from(
+          { length: leftCount },
+          (_, i) => leftMinX + (leftUsable * (i + 1)) / (leftCount + 1)
+        )
+      }
+
+      const rightMinX = entranceEnd + seatType.width / 2
+      const rightMaxX = maxX - seatType.width / 2
+      const rightUsable = Math.max(0, rightMaxX - rightMinX)
+      if (rightCount > 0 && rightUsable > 0.2) {
+        result.right = Array.from(
+          { length: rightCount },
+          (_, i) => rightMinX + (rightUsable * (i + 1)) / (rightCount + 1)
+        )
+      }
+
+      return result
+    })()
+    const globalSideCoords = getEvenlySpacedCoords(
+      stageMaxY + seatType.width / 2,
+      maxY - seatType.width / 2,
+      pitch
+    )
+    const globalBottomLeftCoords = getEvenlySpacedCoords(
+      minX + seatType.width / 2,
+      entranceStart - seatType.width / 2,
+      pitch
+    )
+    const globalBottomRightCoords = getEvenlySpacedCoords(
+      entranceEnd + seatType.width / 2,
+      maxX - seatType.width / 2,
+      pitch
+    )
 
     // Add bleacher zones before placing bleacher seats so we can test membership, but don't reserve them
     // in usedArea until after bleacher seats are placed (otherwise we'd block our own placement).
     this.config.zones.push(...bleacherZones)
+
+    const canPlacePair = (placedSoFar: number): boolean => {
+      if (peopleToAllocate <= 0) return true
+      return placedSoFar + 2 <= peopleToAllocate
+    }
+
+    function getEvenlySpacedCoords(start: number, end: number, spacing: number): number[] {
+      const forward = end >= start
+      const length = Math.abs(end - start)
+      if (length <= 1e-6 || spacing <= 1e-6) return []
+
+      // Center seat centers within the segment so both ends get equal leftover margin.
+      const count = Math.floor(length / spacing) + 1
+      if (count <= 0) return []
+      const usedLength = (count - 1) * spacing
+      const margin = (length - usedLength) / 2
+
+      return Array.from({ length: count }, (_, i) => {
+        const distance = margin + i * spacing
+        return start + (forward ? distance : -distance)
+      })
+    }
+
+    const isSeatFullyInsideAnyBleacherZone = (
+      x: number,
+      y: number,
+      candidateSeatType: typeof seatType
+    ): boolean => {
+      const halfW = candidateSeatType.width / 2
+      const halfD = candidateSeatType.depth / 2
+      const minSeatX = x - halfW
+      const maxSeatX = x + halfW
+      const minSeatY = y - halfD
+      const maxSeatY = y + halfD
+
+      return bleacherZones.some(zone => {
+        return (
+          minSeatX >= zone.bounds.minX &&
+          maxSeatX <= zone.bounds.maxX &&
+          minSeatY >= zone.bounds.minY &&
+          maxSeatY <= zone.bounds.maxY
+        )
+      })
+    }
 
     for (let step = 0; step < config.numberOfSteps; step++) {
       if (peopleToAllocate > 0 && placed >= peopleToAllocate) break
 
       const rowNumber = 1000 + step
       let positionInRow = 0
-      let carry = seatType.width / 2
       const leftX = minX + stepDepth * (step + 0.5)
       const rightX = maxX - stepDepth * (step + 0.5)
       const rowY = maxY - stepDepth * (step + 0.5)
+      const halfSeatW = seatType.width / 2
+      const halfSeatD = seatType.depth / 2
+      const spanAtRow = this.getFootprintXSpanAtY(rowY)
+      const leftVerticalEnd = Math.min(rowY - halfSeatW, this.getFootprintMaxYAtX(leftX) - halfSeatD)
+      const rightVerticalStart = Math.min(
+        rowY - halfSeatW,
+        this.getFootprintMaxYAtX(rightX) - halfSeatD
+      )
+      const bottomStartX = Math.max(leftX + halfSeatW, spanAtRow.minX + halfSeatW)
+      const bottomEndX = Math.min(rightX - halfSeatW, spanAtRow.maxX - halfSeatW)
 
       const segments = [
-        { kind: 'left' as const, start: stageMaxY + seatType.width / 2, end: rowY - seatType.width / 2, fixed: leftX, resetCarry: false },
-        { kind: 'bottom' as const, start: leftX + seatType.width / 2, end: entranceStart - seatType.width / 2, fixed: rowY, resetCarry: false },
-        { kind: 'bottom' as const, start: entranceEnd + seatType.width / 2, end: rightX - seatType.width / 2, fixed: rowY, resetCarry: true },
-        { kind: 'right' as const, start: rowY - seatType.width / 2, end: stageMaxY + seatType.width / 2, fixed: rightX, resetCarry: false }
+        {
+          kind: 'left' as const,
+          start: stageMaxY + seatType.width / 2,
+          end: leftVerticalEnd,
+          fixed: leftX
+        },
+        {
+          kind: 'bottom' as const,
+          start: bottomStartX,
+          end: Math.min(entranceStart - seatType.width / 2, bottomEndX),
+          fixed: rowY
+        },
+        {
+          kind: 'bottom' as const,
+          start: Math.max(entranceEnd + seatType.width / 2, bottomStartX),
+          end: bottomEndX,
+          fixed: rowY
+        },
+        {
+          kind: 'right' as const,
+          start: rightVerticalStart,
+          end: stageMaxY + seatType.width / 2,
+          fixed: rightX
+        }
       ]
 
+      type CandidateSeat = { x: number; y: number }
+      const candidatesBySegment = new Map<string, CandidateSeat[]>()
+
+      const pushCandidate = (segmentKey: string, x: number, y: number) => {
+        const list = candidatesBySegment.get(segmentKey) || []
+        list.push({ x, y })
+        candidatesBySegment.set(segmentKey, list)
+      }
+
       for (const segment of segments) {
-        if (peopleToAllocate > 0 && placed >= peopleToAllocate) break
+        const segmentKey =
+          segment.kind === 'left'
+            ? 'left'
+            : segment.kind === 'right'
+              ? 'right'
+              : segment.end <= entranceStart - seatType.width / 2 + 1e-6
+                ? 'bottom-left'
+                : 'bottom-right'
 
-        const forward = segment.end >= segment.start
-        const length = Math.abs(segment.end - segment.start)
-        if (length <= 0) {
-          if (segment.resetCarry) carry = 0
-          continue
-        }
+        const segmentMin = Math.min(segment.start, segment.end)
+        const segmentMax = Math.max(segment.start, segment.end)
+        const coords =
+          segmentKey === 'left' || segmentKey === 'right'
+            ? globalSideCoords.filter(c => c >= segmentMin - 1e-6 && c <= segmentMax + 1e-6)
+            : segmentKey === 'bottom-left'
+              ? globalBottomLeftCoords.filter(c => c >= segmentMin - 1e-6 && c <= segmentMax + 1e-6)
+              : globalBottomRightCoords.filter(c => c >= segmentMin - 1e-6 && c <= segmentMax + 1e-6)
 
-        let distance = carry
-        while (distance <= length + 1e-6) {
-          const coord = segment.start + (forward ? distance : -distance)
+        for (const coord of coords) {
           const x = segment.kind === 'bottom' ? coord : segment.fixed
           const y = segment.kind === 'bottom' ? segment.fixed : coord
 
           const inBleacherAisle = (() => {
             if (aisleCount <= 0) return false
 
-            // Side bleacher aisles: horizontal gaps in the vertical run (apply equally to left and right sides)
             if (segment.kind === 'left' || segment.kind === 'right') {
-              const minY = Math.min(segment.start, segment.end)
-              const maxY = Math.max(segment.start, segment.end)
-              const usable = Math.max(0, maxY - minY)
-              if (usable <= 0.2) return false
-
-              for (let i = 1; i <= aisleCount; i++) {
-                const center = minY + (usable * i) / (aisleCount + 1)
-                if (Math.abs(y - center) <= bleacherAisleWidth / 2) return true
-              }
-              return false
+              return sideAisleCenters.some(center => Math.abs(y - center) <= bleacherAisleWidth / 2)
             }
 
-            // Rear bleacher aisles: vertical gaps in the bottom run, centered with the entrance considered.
-            // We distribute aisles across left/right bottom segments symmetrically.
-            const isLeftBottom = segment.end <= entranceStart - seatType.width / 2 + 1e-6
-            const isRightBottom = segment.start >= entranceEnd + seatType.width / 2 - 1e-6
-            if (!isLeftBottom && !isRightBottom) return false
-
-            const leftCount = Math.ceil(aisleCount / 2)
-            const rightCount = Math.floor(aisleCount / 2)
-            const countForThisSegment = isLeftBottom ? leftCount : rightCount
-            if (countForThisSegment <= 0) return false
-
-            const minX = Math.min(segment.start, segment.end)
-            const maxX = Math.max(segment.start, segment.end)
-            const usable = Math.max(0, maxX - minX)
-            if (usable <= 0.2) return false
-
-            for (let i = 1; i <= countForThisSegment; i++) {
-              const center = minX + (usable * i) / (countForThisSegment + 1)
-              if (Math.abs(x - center) <= bleacherAisleWidth / 2) return true
-            }
-            return false
+            const isLeftBottom = segmentKey === 'bottom-left'
+            const segmentMinX = Math.min(segment.start, segment.end)
+            const segmentMaxX = Math.max(segment.start, segment.end)
+            const centers = isLeftBottom ? bottomAisleCenters.left : bottomAisleCenters.right
+            return centers.some(center => {
+              if (center < segmentMinX || center > segmentMaxX) return false
+              return Math.abs(x - center) <= bleacherAisleWidth / 2
+            })
           })()
 
-          // Ensure bleacher seats are exclusive to the current bleacher step band (left, right, or bottom).
-          // This is stricter and matches what we draw as bleacher steps.
           const halfW = bleacherSeatType.width / 2
           const halfD = bleacherSeatType.depth / 2
 
@@ -724,30 +863,37 @@ export class LayoutGenerator {
           if (
             !inBleacherAisle &&
             inBleacherZone &&
+            isSeatFullyInsideAnyBleacherZone(x, y, bleacherSeatType) &&
             !this.isPositionBlocked(x, y, bleacherSeatType) &&
             this.pointInShape(x, y)
           ) {
-            const seat = this.createSeat(x, y, rowNumber, positionInRow, bleacherSeatType)
-            // Prefix with step index to avoid duplicate numbers across steps/rows.
+            pushCandidate(segmentKey, x, y)
+          }
+        }
+      }
+
+      const placePairedSeats = (a: CandidateSeat[], b: CandidateSeat[]) => {
+        const pairCount = Math.min(a.length, b.length)
+        for (let i = 0; i < pairCount; i++) {
+          if (!canPlacePair(placed)) return
+          const pair = [a[i], b[i]]
+          for (const item of pair) {
+            const seat = this.createSeat(item.x, item.y, rowNumber, positionInRow, bleacherSeatType)
             seat.metadata.seatNumber = `B${step + 1}-${positionInRow + 1}`
             seat.metadata.bleacher = true
             this.seats.push(seat)
-            this.markAreaAsUsed(x, y, bleacherSeatType.width, bleacherSeatType.depth)
+            this.markAreaAsUsed(item.x, item.y, bleacherSeatType.width, bleacherSeatType.depth)
             placed++
             positionInRow++
           }
-
-          distance += pitch
-        }
-
-        carry = distance - length
-        if (carry < seatType.width / 2) {
-          carry += pitch
-        }
-        if (segment.resetCarry) {
-          carry = seatType.width / 2
         }
       }
+
+      placePairedSeats(candidatesBySegment.get('left') || [], candidatesBySegment.get('right') || [])
+      placePairedSeats(
+        candidatesBySegment.get('bottom-left') || [],
+        candidatesBySegment.get('bottom-right') || []
+      )
     }
 
     // After placing bleacher seats, reserve the bleacher footprint so floor seats don't overlap it.

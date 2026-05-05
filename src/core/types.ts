@@ -50,6 +50,7 @@ export interface BleacherConfig {
   stepHeight: number // meters
   stepDepth: number // meters
   aisleCount: number
+  aisleWidth?: number // meters (walking gap width inside bleachers)
   entranceWidth: number
 }
 
