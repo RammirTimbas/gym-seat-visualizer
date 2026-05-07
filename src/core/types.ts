@@ -102,6 +102,7 @@ export enum ZoneType {
   STAGE = 'stage',
   VIP = 'vip',
   BLOCKED = 'blocked',
+  EMERGENCY = 'emergency',
   AISLE = 'aisle',
   BLEACHER = 'bleacher'
 }
@@ -159,6 +160,8 @@ export interface GymConfig {
   // Optimization
   maxRows?: number
   preferredDensity?: 'compact' | 'comfortable' | 'spacious'
+  // Emergency exit visual height (meters) used by the layout generator to create emergency zones
+  emergencyExitHeight?: number
 }
 
 // ============================================================================

@@ -267,6 +267,16 @@ function setupDOM(): void {
                 </div>
               </div>
             </div>
+            <div class="control-group">
+              <label>Emergency Exit (meters):</label>
+              <div style="display:flex; gap:8px; align-items:center;">
+                <div class="input-with-label">
+                  <span class="field-label">Height</span>
+                  <input id="emergency-exit-height" type="number" min="0.2" step="0.1" style="width:80px;" />
+                </div>
+                <p class="help-text" style="margin:0;">Visual height of emergency exit overlay (affects reserved area)</p>
+              </div>
+            </div>
             
             <div class="control-group">
               <label>Bottom Tables (meters):</label>
@@ -773,6 +783,7 @@ function setInputsFromConfig(config: any): void {
   ;(document.getElementById('bleachers-aisle-width') as HTMLInputElement).value = config.bleachers?.aisleWidth ?? 0
   ;(document.getElementById('bleachers-width') as HTMLInputElement).value = config.bleachers?.width || ''
   ;(document.getElementById('bleachers-entrance-width') as HTMLInputElement).value = config.bleachers?.entranceWidth ?? 2.5
+  ;(document.getElementById('emergency-exit-height') as HTMLInputElement).value = config.emergencyExitHeight ?? ''
 
   const leftTable = config.zones?.find((z: any) => z.id === 'table-left')
   if (leftTable) {
@@ -906,6 +917,7 @@ function updateConfigFromInputs(): void {
   const bleachersAisleWidth = parseFloat((document.getElementById('bleachers-aisle-width') as HTMLInputElement).value)
   const bleachersWidth = parseFloat((document.getElementById('bleachers-width') as HTMLInputElement).value)
   const bleachersEntranceWidth = parseFloat((document.getElementById('bleachers-entrance-width') as HTMLInputElement).value)
+  const emergencyExitHeight = parseFloat((document.getElementById('emergency-exit-height') as HTMLInputElement).value)
 
   const tableWidth = parseFloat((document.getElementById('table-width') as HTMLInputElement).value)
   const tableDepth = parseFloat((document.getElementById('table-depth') as HTMLInputElement).value)
@@ -990,6 +1002,8 @@ function updateConfigFromInputs(): void {
   config.bleachers.aisleCount = Number.isNaN(bleachersAisles) ? 0 : bleachersAisles
   config.bleachers.aisleWidth = Number.isNaN(bleachersAisleWidth) ? 0 : bleachersAisleWidth
   config.bleachers.entranceWidth = Number.isNaN(bleachersEntranceWidth) ? 2.5 : bleachersEntranceWidth
+  // Emergency exit height: leave undefined if not set
+  config.emergencyExitHeight = Number.isNaN(emergencyExitHeight) ? undefined : emergencyExitHeight
 
   // Calculate estimated faculty width to push other elements
   const facultyCount = config.facultyCount || 0

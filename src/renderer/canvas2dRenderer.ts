@@ -27,6 +27,7 @@ export class Canvas2DRenderer {
         stage: '#efad44',
         vip: '#f59e0b',
         blocked: '#9ca3af',
+        emergency: '#06b6d4',
         aisle: '#f3f4f6',
         bleacher: '#fdba74',
         medical: '#ec4899',
@@ -46,6 +47,7 @@ export class Canvas2DRenderer {
         stage: '#f87171',
         vip: '#fcd34d',
         blocked: '#6b7280',
+        emergency: '#06b6d4',
         aisle: '#111827',
         bleacher: '#f59e0b',
         medical: '#f472b6',
@@ -336,6 +338,8 @@ export class Canvas2DRenderer {
     const labels: Record<string, string> = {
       'table-left': 'Medical Team',
       'table-right': 'Medical Team',
+      'emergency-left': 'Emergency Exit',
+      'emergency-right': 'Emergency Exit',
       'aisle-side-left': 'Left Aisle',
       'aisle-side-right': 'Right Aisle',
       'aisle-front': 'Front Aisle',
@@ -436,7 +440,8 @@ export class Canvas2DRenderer {
 
     // Draw non-aisle zones first (skipping special zones that should be on top)
     for (const zone of this.layout.zones) {
-      if (zone.type === ZoneType.AISLE || zone.id.includes('table') || zone.id === 'photobooth') {
+      // Defer aisles, tables, photobooth and emergency overlays to their special renderers
+      if (zone.type === ZoneType.AISLE || zone.id.includes('table') || zone.id === 'photobooth' || zone.type === ZoneType.EMERGENCY) {
         continue
       }
       // Bleachers are rendered separately (bands + bleacher seats). Drawing BLEACHER zones here
@@ -585,7 +590,8 @@ export class Canvas2DRenderer {
 
     // Draw special zones (Medical tables and Photobooth) on top of everything else
     for (const zone of this.layout.zones) {
-      if (!zone.id.includes('table') && zone.id !== 'photobooth') {
+      // Handle tables, photobooth, and emergency overlays here so they render above bleachers/seats
+      if (!zone.id.includes('table') && zone.id !== 'photobooth' && zone.type !== ZoneType.EMERGENCY) {
         continue
       }
       if (zone.id.includes('reserved')) {
@@ -601,14 +607,21 @@ export class Canvas2DRenderer {
       const height = y2 - y1
 
       let zoneColor = (theme.zone as any).medical
+      let alpha = 0.92
       if (zone.id === 'photobooth') {
         zoneColor = (theme.zone as any).photobooth
+        alpha = 0.92
+      }
+      if (zone.type === ZoneType.EMERGENCY) {
+        zoneColor = (theme.zone as any).emergency
+        // Reduced opacity so bleacher seats remain visible beneath
+        alpha = 0.45
       }
 
       this.ctx.save()
       this.clipToGymFootprint()
       this.ctx.fillStyle = zoneColor
-      this.ctx.globalAlpha = 0.92
+      this.ctx.globalAlpha = alpha
       this.ctx.fillRect(x1, y1, width, height)
 
       this.ctx.strokeStyle = theme.text

@@ -749,6 +749,67 @@ export class LayoutGenerator {
     // in usedArea until after bleacher seats are placed (otherwise we'd block our own placement).
     this.config.zones.push(...bleacherZones)
 
+    // Create a single emergency exit zone for the left and right bleacher groups (visual overlay, reserved area)
+    try {
+      const emergencyHeight = this.config.emergencyExitHeight ?? 1.0
+      const forwardExtension = Math.min(1.0, emergencyHeight * 0.4)
+
+      const leftBleachers = bleacherZones.filter(z => z.id.startsWith('bleacher-left'))
+      const rightBleachers = bleacherZones.filter(z => z.id.startsWith('bleacher-right'))
+
+      const makeCombinedBounds = (zones: Zone[]): Zone['bounds'] | null => {
+        if (!zones || zones.length === 0) return null
+        let minX = Infinity
+        let maxX = -Infinity
+        let minY = Infinity
+        let maxY = -Infinity
+        for (const z of zones) {
+          const b = z.bounds
+          minX = Math.min(minX, b.minX)
+          maxX = Math.max(maxX, b.maxX)
+          minY = Math.min(minY, b.minY)
+          maxY = Math.max(maxY, b.maxY)
+        }
+        if (minX === Infinity) return null
+        return { minX, maxX, minY, maxY }
+      }
+
+      const leftBounds = makeCombinedBounds(leftBleachers)
+      const rightBounds = makeCombinedBounds(rightBleachers)
+
+      const emergencyZones: Zone[] = []
+
+      const buildEmergencyFor = (sideBounds: Zone['bounds'] | null, sideId: string) => {
+        if (!sideBounds) return
+        const minX = Math.max(0, sideBounds.minX - 0.05)
+        const maxX = Math.min(this.config.width, sideBounds.maxX + 0.05)
+        // Center emergency zone on the bleacher band's vertical midpoint
+        const centerY = (sideBounds.minY + sideBounds.maxY) / 2
+        let minY = centerY - emergencyHeight / 2
+        let maxY = centerY + emergencyHeight / 2
+        // Extend slightly forward (toward the floor interior = smaller Y direction)
+        minY = Math.max(0, minY - forwardExtension)
+        // Clamp to gym bounds
+        maxY = Math.min(this.config.length, maxY)
+
+        if (maxX - minX > 0.05 && maxY - minY > 0.05) {
+          emergencyZones.push({
+            id: sideId,
+            type: ZoneType.EMERGENCY,
+            label: 'Emergency Exit',
+            bounds: { minX, maxX, minY, maxY }
+          })
+        }
+      }
+
+      buildEmergencyFor(leftBounds, 'emergency-left')
+      buildEmergencyFor(rightBounds, 'emergency-right')
+
+      if (emergencyZones.length > 0) this.config.zones.push(...emergencyZones)
+    } catch (err) {
+      // Non-fatal; emergency zones are optional
+    }
+
     const canPlacePair = (placedSoFar: number): boolean => {
       if (peopleToAllocate <= 0) return true
       return placedSoFar + 2 <= peopleToAllocate
@@ -771,27 +832,7 @@ export class LayoutGenerator {
       })
     }
 
-    const isSeatFullyInsideAnyBleacherZone = (
-      x: number,
-      y: number,
-      candidateSeatType: typeof seatType
-    ): boolean => {
-      const halfW = candidateSeatType.width / 2
-      const halfD = candidateSeatType.depth / 2
-      const minSeatX = x - halfW
-      const maxSeatX = x + halfW
-      const minSeatY = y - halfD
-      const maxSeatY = y + halfD
-
-      return bleacherZones.some(zone => {
-        return (
-          minSeatX >= zone.bounds.minX &&
-          maxSeatX <= zone.bounds.maxX &&
-          minSeatY >= zone.bounds.minY &&
-          maxSeatY <= zone.bounds.maxY
-        )
-      })
-    }
+    
 
     for (let step = 0; step < totalPhysicalSteps; step++) {
       if (peopleToAllocate > 0 && placed >= peopleToAllocate) break
@@ -891,8 +932,7 @@ export class LayoutGenerator {
             })
           })()
 
-          const halfW = bleacherSeatType.width / 2
-          const halfD = bleacherSeatType.depth / 2
+          
 
           const bandLeftMinX = minX + stepDepth * step
           const bandLeftMaxX = minX + stepDepth * (step + 1)
@@ -1206,6 +1246,10 @@ export class LayoutGenerator {
       // Bleacher seats are allowed to exist inside bleacher zones (that's the whole point).
       // For all other seat types, bleacher zones remain blocking.
       if (seatType.type === SeatType.BLEACHER && zone.type === ZoneType.BLEACHER) {
+        continue
+      }
+      // Bleacher seats should ignore emergency zones (overlay below bleachers)
+      if (seatType.type === SeatType.BLEACHER && zone.type === ZoneType.EMERGENCY) {
         continue
       }
       // Bleacher seating should not be constrained by floor aisles; aisles apply to floor seating area.
