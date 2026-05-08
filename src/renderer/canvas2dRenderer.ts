@@ -26,6 +26,8 @@ export class Canvas2DRenderer {
       seatAccessible: '#10b981',
       seatVip: '#f59e0b',
       seatBleacher: '#fb923c',
+      seatBleacher1: '#f97316',
+      seatBleacher2: '#8b5cf6',
       zone: {
         stage: '#efad44',
         vip: '#f59e0b',
@@ -46,6 +48,8 @@ export class Canvas2DRenderer {
       seatAccessible: '#34d399',
       seatVip: '#fcd34d',
       seatBleacher: '#fbbf24',
+      seatBleacher1: '#fb923c',
+      seatBleacher2: '#a78bfa',
       zone: {
         stage: '#f87171',
         vip: '#fcd34d',
@@ -578,12 +582,16 @@ export class Canvas2DRenderer {
           ) {
             this.ctx.save()
             this.ctx.font = 'bold 11px sans-serif'
-            this.ctx.textAlign = 'center'
             this.ctx.textBaseline = 'middle'
             const cx = (x1 + x2) / 2
-            const cy = (y1 + y2) / 2
+
+            // New logic: Only aisle-vertical-center labels start from top. Side and Carpet remain centered.
+            const isCenterVertical = zone.id === 'aisle-vertical-center-left' || zone.id === 'aisle-vertical-center-right'
+            const cy = isCenterVertical ? y1 + 15 : (y1 + y2) / 2
+
             this.ctx.translate(cx, cy)
             this.ctx.rotate(Math.PI / 2)
+            this.ctx.textAlign = isCenterVertical ? 'left' : 'center'
             this.ctx.fillText(aisleLabel, 0, 0)
             this.ctx.restore()
           } else if (zone.id === 'aisle-horizontal') {
@@ -1013,7 +1021,13 @@ export class Canvas2DRenderer {
     for (const seat of orderedSeats) {
       // Do not draw bleacher seats that fall inside emergency exit zones or clearance corridors
       if (this.isSeatInClearance(seat)) continue
-      const color = seat.metadata.occupied ? '#10b981' : '#3b82f6'
+
+      // Determine color based on bleacher type
+      let color = seat.metadata.occupied ? '#10b981' : (theme.seatBleacher1 || '#f97316')
+      if (seat.metadata.bleacherType === 2) {
+        color = seat.metadata.occupied ? '#10b981' : (theme.seatBleacher2 || '#8b5cf6')
+      }
+
       const x = seat.position.x * scale + this.renderContext.offsetX
       const y = seat.position.y * scale + this.renderContext.offsetY
       const markerWidth = seat.dimension.width * scale
@@ -1540,6 +1554,14 @@ export class Canvas2DRenderer {
     // 2. Faculty (VIP seats)
     if (this.layout.seats.some(s => s.metadata.vip)) {
       items.push({ color: theme.seatVip, label: 'Faculty' })
+    }
+
+    // 2.5 Bleacher Seat 1 & 2
+    if (this.layout.seats.some(s => s.metadata.bleacherType === 1)) {
+      items.push({ color: theme.seatBleacher1 || '#f97316', label: 'Bleacher Seat 1' })
+    }
+    if (this.layout.seats.some(s => s.metadata.bleacherType === 2)) {
+      items.push({ color: theme.seatBleacher2 || '#8b5cf6', label: 'Bleacher Seat 2' })
     }
     
     // 3. Stage

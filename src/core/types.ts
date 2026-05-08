@@ -81,6 +81,7 @@ export interface SeatMetadata {
   occupied?: boolean // is seat occupied
   seatNumber?: string // readable seat number (e.g., "A-12")
   bleacher?: boolean // is seat in bleacher
+  bleacherType?: 1 | 2 // used for unique coloring in bleachers
 }
 
 // ============================================================================

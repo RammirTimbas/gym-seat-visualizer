@@ -1050,6 +1050,7 @@ export class LayoutGenerator {
         }
       }
 
+      const bleacherMidY = (stageMaxY + maxY) / 2
       const placePairedSeats = (a: CandidateSeat[], b: CandidateSeat[]) => {
         const pairCount = Math.min(a.length, b.length)
         for (let i = 0; i < pairCount; i++) {
@@ -1059,6 +1060,8 @@ export class LayoutGenerator {
             const seat = this.createSeat(item.x, item.y, rowNumber, positionInRow, bleacherSeatType)
             seat.metadata.seatNumber = `B${step + 1}-${positionInRow + 1}`
             seat.metadata.bleacher = true
+            // Group by geographic half: Top (closer to stage) vs Bottom
+            seat.metadata.bleacherType = item.y < bleacherMidY ? 1 : 2
             this.seats.push(seat)
             this.markAreaAsUsed(item.x, item.y, bleacherSeatType.width, bleacherSeatType.depth)
             placed++
