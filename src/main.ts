@@ -660,8 +660,17 @@ function loadLayout(config: GymConfig): void {
       const n = Math.min(ordinarySeats.length, targetPeopleVal)
       const centerX = layout.config.width / 2
 
-      const leftOrdinary = ordinarySeats.filter((s: any) => s.position.x < centerX)
-      const rightOrdinary = ordinarySeats.filter((s: any) => s.position.x >= centerX)
+      let leftOrdinary = ordinarySeats.filter((s: any) => s.position.x < centerX)
+      let rightOrdinary = ordinarySeats.filter((s: any) => s.position.x >= centerX)
+
+      // Sort seats deterministically: front-to-back (y ascending), then left-to-right (x ascending).
+      // This ensures occupancy assignment is stable across layout regenerations.
+      const seatSorter = (a: any, b: any) => {
+        if (Math.abs(a.position.y - b.position.y) > 1e-6) return a.position.y - b.position.y
+        return a.position.x - b.position.x
+      }
+      leftOrdinary = leftOrdinary.slice().sort(seatSorter)
+      rightOrdinary = rightOrdinary.slice().sort(seatSorter)
       
       const half = Math.floor(n / 2)
       const remainder = n % 2

@@ -418,12 +418,21 @@ export class Canvas2DRenderer {
     const spacing = 1 // 1 meter
     const pixelSpacing = spacing * this.renderContext.scale
 
+    // Draw grid aligned to world (meter) coordinates so lines line up with seat positions.
+    // Compute visible world bounds
+    const worldMinX = (-this.renderContext.offsetX) / this.renderContext.scale
+    const worldMaxX = (this.canvas.width - this.renderContext.offsetX) / this.renderContext.scale
+    const worldMinY = (-this.renderContext.offsetY) / this.renderContext.scale
+    const worldMaxY = (this.canvas.height - this.renderContext.offsetY) / this.renderContext.scale
+
     this.ctx.strokeStyle = theme.grid
     this.ctx.lineWidth = 0.5
     this.ctx.globalAlpha = 0.3
 
-    // Vertical lines
-    for (let x = this.renderContext.offsetX; x < this.canvas.width; x += pixelSpacing) {
+    // Vertical lines: iterate world coordinates and map to pixels
+    const firstVX = Math.floor(worldMinX / spacing) * spacing
+    for (let wx = firstVX; wx <= worldMaxX; wx += spacing) {
+      const x = wx * this.renderContext.scale + this.renderContext.offsetX
       this.ctx.beginPath()
       this.ctx.moveTo(x, 0)
       this.ctx.lineTo(x, this.canvas.height)
@@ -431,7 +440,9 @@ export class Canvas2DRenderer {
     }
 
     // Horizontal lines
-    for (let y = this.renderContext.offsetY; y < this.canvas.height; y += pixelSpacing) {
+    const firstHY = Math.floor(worldMinY / spacing) * spacing
+    for (let wy = firstHY; wy <= worldMaxY; wy += spacing) {
+      const y = wy * this.renderContext.scale + this.renderContext.offsetY
       this.ctx.beginPath()
       this.ctx.moveTo(0, y)
       this.ctx.lineTo(this.canvas.width, y)
@@ -738,20 +749,30 @@ export class Canvas2DRenderer {
       const centerX = (ez.bounds.minX + ez.bounds.maxX) / 2
       const crMinX = Math.max(ez.bounds.minX + 0.05, centerX - crW / 2)
       const crMaxX = Math.min(ez.bounds.maxX - 0.05, centerX + crW / 2)
+      const midX = (crMinX + crMaxX) / 2
 
       const padding = 0.05
-      // Top (Men) - align to top edge inside gap
+      // Top section split into CR and PWD
       const topMinY = ez.bounds.minY + padding
       const topMaxY = Math.min(ez.bounds.minY + padding + crH, ez.bounds.maxY - padding)
-      this.comfortRooms.push({ minX: crMinX, minY: topMinY, maxX: crMaxX, maxY: topMaxY, label: 'Comfort Room — Men' })
 
-      // Bottom (Female) - align to bottom edge inside gap
+      this.comfortRooms.push(
+        { minX: crMinX, minY: topMinY, maxX: midX, maxY: topMaxY, label: 'CR' },
+        { minX: midX, minY: topMinY, maxX: crMaxX, maxY: topMaxY, label: 'PWD' }
+      )
+
+      // Bottom section split into CR and PWD
       const bottomMaxY = ez.bounds.maxY - padding
       const bottomMinY = Math.max(ez.bounds.maxY - padding - crH, ez.bounds.minY + padding)
-      this.comfortRooms.push({ minX: crMinX, minY: bottomMinY, maxX: crMaxX, maxY: bottomMaxY, label: 'Comfort Room — Female' })
+
+      this.comfortRooms.push(
+        { minX: crMinX, minY: bottomMinY, maxX: midX, maxY: bottomMaxY, label: 'CR' },
+        { minX: midX, minY: bottomMinY, maxX: crMaxX, maxY: bottomMaxY, label: 'PWD' }
+      )
 
       // For each comfort room find nearest aisle and create a clearance corridor
-      for (const cr of this.comfortRooms.slice(-2)) {
+      // We now process the last 4 rooms added for each emergency exit
+      for (const cr of this.comfortRooms.slice(-4)) {
         let bestAisle: any = null
         let bestDist = Infinity
         for (const a of aisles) {
@@ -827,7 +848,11 @@ export class Canvas2DRenderer {
   }
 
   private isSeatInClearance(seat: Seat) {
+    // Only VIP/faculty seats should be removed/omitted to ensure emergency exits and
+    // comfort-room clearance — ordinary seats should not be deleted for this reason.
     if (!this.layout) return false
+    if (!seat.metadata || !seat.metadata.vip) return false
+
     const x = seat.position.x
     const y = seat.position.y
     // Emergency zones

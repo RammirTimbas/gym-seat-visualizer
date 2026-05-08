@@ -381,10 +381,11 @@ export class LayoutGenerator {
 
   private getUsableFloorBounds() {
     const bleacherDepth = this.getBleacherDepth()
-    // Floor seats only need to respect the side bleachers and side aisles.
-    // Faculty seats are row-dependent and handled by the usedArea collision grid.
-    const minX = this.config.minMargin + bleacherDepth + this.config.aisles.side
-    const maxX = this.config.width - this.config.minMargin - bleacherDepth - this.config.aisles.side
+    const facultyWidth = this.getFacultyWidth()
+    // Floor seats should respect side bleachers, side aisles AND the reserved faculty width.
+    // This ensures floor rows stay aligned even if faculty seats are not present in some rows.
+    const minX = this.config.minMargin + bleacherDepth + this.config.aisles.side + facultyWidth
+    const maxX = this.config.width - this.config.minMargin - bleacherDepth - this.config.aisles.side - facultyWidth
     const minY = Math.max(this.config.minMargin, this.getStageMaxY()) + this.config.aisles.front
     const maxY = this.getBackAisleMinY()
 
@@ -682,8 +683,8 @@ export class LayoutGenerator {
     const maxX = this.config.width - this.config.minMargin
     // Bleachers are allowed to occupy the bottom strip; bottom elements are moved upward when bleachers are enabled.
     const maxY = this.config.length - this.config.minMargin
-    const requestedEntranceWidth = Number.isFinite(config.entranceWidth) ? config.entranceWidth : 2.5
-    const entranceWidth = Math.min(Math.max(requestedEntranceWidth, 0), Math.max(0, maxX - minX - 0.2))
+    const entranceWidthRequested = Number.isFinite(config.entranceWidth) ? config.entranceWidth : 2.5
+    const entranceWidth = Math.min(Math.max(entranceWidthRequested, 0), Math.max(0, maxX - minX - 0.2))
     const entranceStart = (this.config.width - entranceWidth) / 2
     const entranceEnd = entranceStart + entranceWidth
     const pitch = seatType.width + this.config.horizontalSpacing
