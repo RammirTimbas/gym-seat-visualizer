@@ -162,6 +162,9 @@ export interface GymConfig {
   preferredDensity?: 'compact' | 'comfortable' | 'spacious'
   // Emergency exit visual height (meters) used by the layout generator to create emergency zones
   emergencyExitHeight?: number
+  // Configuration for stage-side emergency exits
+  stageEmergencyExitHeight?: number
+  stageEmergencyExitWidth?: number
 }
 
 // ============================================================================
@@ -186,7 +189,7 @@ export interface LayoutOutput {
   
   // Statistics
   stats: {
-    seatsByType: Record<SeatType, number>
+    seatsByType: Record<string, number>
     seatsByAccessibility: {
       accessible: number
       standard: number

@@ -782,19 +782,33 @@ export class LayoutGenerator {
 
       const buildEmergencyFor = (sideBounds: Zone['bounds'] | null, sideId: string, position: 'center' | 'top' = 'center') => {
         if (!sideBounds) return
-        const minX = Math.max(0, sideBounds.minX - 0.05)
-        const maxX = Math.min(this.config.width, sideBounds.maxX + 0.05)
+
+        // Use specific stage dimensions if it's a top exit, otherwise use global default
+        const h = position === 'top' ? (this.config.stageEmergencyExitHeight ?? emergencyHeight) : emergencyHeight
+        // For width (depth of cut into bleacher), use stage width if top, otherwise bleacher depth
+        const w = position === 'top' ? (this.config.stageEmergencyExitWidth ?? bleacherDepth) : (sideBounds.maxX - sideBounds.minX)
+
+        const centerX = (sideBounds.minX + sideBounds.maxX) / 2
+        // If it's a left side exit
+        let minX, maxX;
+        if (sideBounds.minX < this.config.width / 2) {
+           minX = sideBounds.minX - 0.05
+           maxX = sideBounds.minX + w + 0.05
+        } else {
+           maxX = sideBounds.maxX + 0.05
+           minX = sideBounds.maxX - w - 0.05
+        }
 
         let minY, maxY;
         if (position === 'center') {
           // Center emergency zone on the bleacher band's vertical midpoint
           const centerY = (sideBounds.minY + sideBounds.maxY) / 2
-          minY = centerY - emergencyHeight / 2
-          maxY = centerY + emergencyHeight / 2
+          minY = centerY - h / 2
+          maxY = centerY + h / 2
         } else {
           // Upper side: Place at the very top of the bleacher band
           minY = sideBounds.minY
-          maxY = sideBounds.minY + emergencyHeight
+          maxY = sideBounds.minY + h
         }
 
         // Extend slightly forward (toward the floor interior = smaller Y direction)

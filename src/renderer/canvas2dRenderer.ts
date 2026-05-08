@@ -752,27 +752,34 @@ export class Canvas2DRenderer {
       const midX = (crMinX + crMaxX) / 2
 
       const padding = 0.05
-      // Top section split into CR and PWD
-      const topMinY = ez.bounds.minY + padding
-      const topMaxY = Math.min(ez.bounds.minY + padding + crH, ez.bounds.maxY - padding)
 
-      this.comfortRooms.push(
-        { minX: crMinX, minY: topMinY, maxX: midX, maxY: topMaxY, label: 'CR' },
-        { minX: midX, minY: topMinY, maxX: crMaxX, maxY: topMaxY, label: 'PWD' }
-      )
+      // Skip CR creation for emergency exits marked as 'no-cr' (upper stage exits)
+      if (!ez.id.includes('no-cr')) {
+        // Top section split into CR and PWD
+        const topMinY = ez.bounds.minY + padding
+        const topMaxY = Math.min(ez.bounds.minY + padding + crH, ez.bounds.maxY - padding)
 
-      // Bottom section split into CR and PWD
-      const bottomMaxY = ez.bounds.maxY - padding
-      const bottomMinY = Math.max(ez.bounds.maxY - padding - crH, ez.bounds.minY + padding)
+        this.comfortRooms.push(
+          { minX: crMinX, minY: topMinY, maxX: midX, maxY: topMaxY, label: 'CR' },
+          { minX: midX, minY: topMinY, maxX: crMaxX, maxY: topMaxY, label: 'PWD' }
+        )
 
-      this.comfortRooms.push(
-        { minX: crMinX, minY: bottomMinY, maxX: midX, maxY: bottomMaxY, label: 'CR' },
-        { minX: midX, minY: bottomMinY, maxX: crMaxX, maxY: bottomMaxY, label: 'PWD' }
-      )
+        // Bottom section split into CR and PWD
+        const bottomMaxY = ez.bounds.maxY - padding
+        const bottomMinY = Math.max(ez.bounds.maxY - padding - crH, ez.bounds.minY + padding)
+
+        this.comfortRooms.push(
+          { minX: crMinX, minY: bottomMinY, maxX: midX, maxY: bottomMaxY, label: 'CR' },
+          { minX: midX, minY: bottomMinY, maxX: crMaxX, maxY: bottomMaxY, label: 'PWD' }
+        )
+      }
 
       // For each comfort room find nearest aisle and create a clearance corridor
-      // We now process the last 4 rooms added for each emergency exit
-      for (const cr of this.comfortRooms.slice(-4)) {
+      // If no CRs were added for this exit (e.g. no-cr exit), we still create a
+      // clearance corridor from the exit zone itself to ensure it leads somewhere.
+      const roomsToProcess = ez.id.includes('no-cr') ? [{ minX: crMinX, minY: ez.bounds.minY, maxX: crMaxX, maxY: ez.bounds.maxY }] : this.comfortRooms.slice(-4)
+
+      for (const cr of (roomsToProcess as any[])) {
         let bestAisle: any = null
         let bestDist = Infinity
         for (const a of aisles) {

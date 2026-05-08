@@ -268,14 +268,28 @@ function setupDOM(): void {
               </div>
             </div>
             <div class="control-group">
-              <label>Emergency Exit (meters):</label>
+              <label>Side Emergency Exit (m):</label>
               <div style="display:flex; gap:8px; align-items:center;">
                 <div class="input-with-label">
                   <span class="field-label">Height</span>
                   <input id="emergency-exit-height" type="number" min="0.2" step="0.1" style="width:80px;" />
                 </div>
-                <p class="help-text" style="margin:0;">Visual height of emergency exit overlay (affects reserved area)</p>
+                <p class="help-text" style="margin:0;">Main exits (with CRs)</p>
               </div>
+            </div>
+            <div class="control-group">
+              <label>Stage Emergency Exit (m):</label>
+              <div style="display:flex; gap:8px; align-items:center;">
+                <div class="input-with-label">
+                  <span class="field-label">Height</span>
+                  <input id="stage-emergency-exit-height" type="number" min="0.2" step="0.1" style="width:80px;" />
+                </div>
+                <div class="input-with-label">
+                  <span class="field-label">Width</span>
+                  <input id="stage-emergency-exit-width" type="number" min="0.2" step="0.1" style="width:80px;" />
+                </div>
+              </div>
+              <p class="help-text">Upper side exits (no CRs)</p>
             </div>
             <div class="control-group">
               <label>Comfort Room Width (m):</label>
@@ -840,6 +854,8 @@ function setInputsFromConfig(config: any): void {
   ;(document.getElementById('bleachers-width') as HTMLInputElement).value = config.bleachers?.width || ''
   ;(document.getElementById('bleachers-entrance-width') as HTMLInputElement).value = config.bleachers?.entranceWidth ?? 2.5
   ;(document.getElementById('emergency-exit-height') as HTMLInputElement).value = config.emergencyExitHeight ?? ''
+  ;(document.getElementById('stage-emergency-exit-height') as HTMLInputElement).value = config.stageEmergencyExitHeight ?? ''
+  ;(document.getElementById('stage-emergency-exit-width') as HTMLInputElement).value = config.stageEmergencyExitWidth ?? ''
 
   const leftTable = config.zones?.find((z: any) => z.id === 'table-left')
   if (leftTable) {
@@ -974,6 +990,8 @@ function updateConfigFromInputs(): void {
   const bleachersWidth = parseFloat((document.getElementById('bleachers-width') as HTMLInputElement).value)
   const bleachersEntranceWidth = parseFloat((document.getElementById('bleachers-entrance-width') as HTMLInputElement).value)
   const emergencyExitHeight = parseFloat((document.getElementById('emergency-exit-height') as HTMLInputElement).value)
+  const stageEmergencyExitHeight = parseFloat((document.getElementById('stage-emergency-exit-height') as HTMLInputElement).value)
+  const stageEmergencyExitWidth = parseFloat((document.getElementById('stage-emergency-exit-width') as HTMLInputElement).value)
 
   const tableWidth = parseFloat((document.getElementById('table-width') as HTMLInputElement).value)
   const tableDepth = parseFloat((document.getElementById('table-depth') as HTMLInputElement).value)
@@ -1060,6 +1078,8 @@ function updateConfigFromInputs(): void {
   config.bleachers.entranceWidth = Number.isNaN(bleachersEntranceWidth) ? 2.5 : bleachersEntranceWidth
   // Emergency exit height: leave undefined if not set
   config.emergencyExitHeight = Number.isNaN(emergencyExitHeight) ? undefined : emergencyExitHeight
+  config.stageEmergencyExitHeight = Number.isNaN(stageEmergencyExitHeight) ? undefined : stageEmergencyExitHeight
+  config.stageEmergencyExitWidth = Number.isNaN(stageEmergencyExitWidth) ? undefined : stageEmergencyExitWidth
 
   // Calculate estimated faculty width to push other elements
   const facultyCount = config.facultyCount || 0
