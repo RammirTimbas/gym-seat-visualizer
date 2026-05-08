@@ -788,9 +788,8 @@ export class LayoutGenerator {
         let minY = centerY - emergencyHeight / 2
         let maxY = centerY + emergencyHeight / 2
         // Extend slightly forward (toward the floor interior = smaller Y direction)
-        minY = Math.max(0, minY - forwardExtension)
-        // Clamp to gym bounds
-        maxY = Math.min(this.config.length, maxY)
+        minY = Math.max(0, minY - forwardExtension / 2)
+        maxY = Math.min(this.config.length, maxY + forwardExtension / 2)
 
         if (maxX - minX > 0.05 && maxY - minY > 0.05) {
           emergencyZones.push({
@@ -1248,10 +1247,7 @@ export class LayoutGenerator {
       if (seatType.type === SeatType.BLEACHER && zone.type === ZoneType.BLEACHER) {
         continue
       }
-      // Bleacher seats should ignore emergency zones (overlay below bleachers)
-      if (seatType.type === SeatType.BLEACHER && zone.type === ZoneType.EMERGENCY) {
-        continue
-      }
+
       // Bleacher seating should not be constrained by floor aisles; aisles apply to floor seating area.
       if (seatType.type === SeatType.BLEACHER && zone.type === ZoneType.AISLE) {
         continue

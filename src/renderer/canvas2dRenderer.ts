@@ -77,6 +77,7 @@ export class Canvas2DRenderer {
       showMeasurements: true,
       hideEmptySeats: false,
       theme: 'light',
+      comfortRoomWidthMeters: undefined,
       ...initialOptions
     }
 
@@ -613,24 +614,74 @@ export class Canvas2DRenderer {
         alpha = 0.92
       }
       if (zone.type === ZoneType.EMERGENCY) {
-        zoneColor = (theme.zone as any).emergency
-        // Reduced opacity so bleacher seats remain visible beneath
-        alpha = 0.45
+        // Emergency exit should be a gap only (no visual zone). Render the Comfort Rooms
+        // inside the gap as explicit visual zones. Their width (meters) can be set via
+        // `renderOptions.comfortRoomWidthMeters`; otherwise they span most of the emergency width.
+        this.ctx.save()
+
+        const zoneWidthMeters = zone.bounds.maxX - zone.bounds.minX
+        const zoneHeightMeters = zone.bounds.maxY - zone.bounds.minY
+        const crWidthMeters =
+          this.renderOptions.comfortRoomWidthMeters && this.renderOptions.comfortRoomWidthMeters > 0
+            ? Math.min(this.renderOptions.comfortRoomWidthMeters, zoneWidthMeters - 0.1)
+            : Math.max(0.25 * zoneWidthMeters, zoneWidthMeters - 0.2)
+
+        const crWidthPx = crWidthMeters * (this.renderContext.scale)
+        const zoneWidthPx = width
+        const zoneHeightPx = height
+        const crX = x1 + (zoneWidthPx - crWidthPx) / 2
+        const paddingPx = Math.max(6, 0.04 * zoneWidthPx)
+        const halfH = zoneHeightPx / 2
+        const innerH = Math.max(12, halfH - paddingPx * 1.2)
+
+        // Visual style for comfort rooms (use medical color to indicate facilities)
+        const crFill = (theme.zone as any).medical
+        const crBorder = (theme.zone as any).medical
+
+        // Upper - Men
+        const menY = y1 + paddingPx
+        this.ctx.fillStyle = crFill
+        this.ctx.globalAlpha = 0.75
+        this.ctx.fillRect(crX, menY, crWidthPx, innerH)
+        this.ctx.globalAlpha = 1
+        this.ctx.strokeStyle = crBorder
+        this.ctx.lineWidth = 2
+        this.ctx.strokeRect(crX, menY, crWidthPx, innerH)
+
+        // Lower - Female
+        const femaleY = y1 + halfH + paddingPx / 2
+        this.ctx.fillStyle = crFill
+        this.ctx.globalAlpha = 0.75
+        this.ctx.fillRect(crX, femaleY, crWidthPx, innerH)
+        this.ctx.globalAlpha = 1
+        this.ctx.strokeStyle = crBorder
+        this.ctx.lineWidth = 2
+        this.ctx.strokeRect(crX, femaleY, crWidthPx, innerH)
+
+        // Labels
+        if (this.renderOptions.showLabels) {
+          this.ctx.fillStyle = theme.text
+          this.ctx.font = 'bold 12px sans-serif'
+          this.ctx.textAlign = 'center'
+          this.ctx.textBaseline = 'middle'
+          this.ctx.fillText('Comfort Room — Men', crX + crWidthPx / 2, menY + innerH / 2)
+          this.ctx.fillText('Comfort Room — Female', crX + crWidthPx / 2, femaleY + innerH / 2)
+        }
+
+        this.ctx.restore()
+      } else {
+        this.ctx.fillStyle = zoneColor
+        this.ctx.globalAlpha = alpha
+        this.ctx.fillRect(x1, y1, width, height)
+        this.ctx.strokeStyle = theme.text
+        this.ctx.lineWidth = 2
+        this.ctx.globalAlpha = 1
+        this.ctx.strokeRect(x1, y1, width, height)
       }
 
-      this.ctx.save()
-      this.clipToGymFootprint()
-      this.ctx.fillStyle = zoneColor
-      this.ctx.globalAlpha = alpha
-      this.ctx.fillRect(x1, y1, width, height)
-
-      this.ctx.strokeStyle = theme.text
-      this.ctx.lineWidth = 2
-      this.ctx.globalAlpha = 1
-      this.ctx.strokeRect(x1, y1, width, height)
-
       const zoneLabel = this.getZoneDisplayLabel(zone.id, zone.label)
-      if (this.renderOptions.showLabels && zoneLabel) {
+      // Do not draw a label for emergency gaps themselves (the comfort rooms are labeled separately)
+      if (zone.type !== ZoneType.EMERGENCY && this.renderOptions.showLabels && zoneLabel) {
         this.ctx.fillStyle = theme.text
         this.ctx.textAlign = 'center'
         this.ctx.textBaseline = 'middle'
@@ -802,6 +853,23 @@ export class Canvas2DRenderer {
     }
 
     for (const seat of orderedSeats) {
+      // Do not draw bleacher seats that fall inside emergency exit zones (they become the gap/pathway)
+      if (this.layout) {
+        const ezs = this.layout.zones.filter(z => z.type === ZoneType.EMERGENCY)
+        let skip = false
+        for (const ez of ezs) {
+          if (
+            seat.position.x >= ez.bounds.minX - 1e-6 &&
+            seat.position.x <= ez.bounds.maxX + 1e-6 &&
+            seat.position.y >= ez.bounds.minY - 1e-6 &&
+            seat.position.y <= ez.bounds.maxY + 1e-6
+          ) {
+            skip = true
+            break
+          }
+        }
+        if (skip) continue
+      }
       const color = seat.metadata.occupied ? '#10b981' : '#3b82f6'
       const x = seat.position.x * scale + this.renderContext.offsetX
       const y = seat.position.y * scale + this.renderContext.offsetY
@@ -1039,6 +1107,59 @@ export class Canvas2DRenderer {
       this.ctx.globalAlpha = 1
       this.ctx.strokeRect(x, y, width, height)
       this.ctx.globalAlpha = 0.55
+    }
+
+    const ezs = this.layout.zones.filter(z => z.type === ZoneType.EMERGENCY)
+    if (ezs.length > 0) {
+      this.ctx.save()
+      this.clipToGymFootprint()
+      this.ctx.globalCompositeOperation = 'destination-out'
+
+      // Carve a gap into the bleacher area so it behaves like an entrance gap (bleachers stop there).
+      // Use full bleacher depth so the bleacher bands do not render across the emergency opening.
+      const carveDepthPhysical = Math.max(0, bleacherDepth)
+
+      for (const ez of ezs) {
+        const ezMinX = ez.bounds.minX
+        const ezMaxX = ez.bounds.maxX
+        const ezMinY = ez.bounds.minY
+        const ezMaxY = ez.bounds.maxY
+
+        // Heuristics to decide which edge the emergency zone is aligned with.
+        const isLeft = ezMaxX <= outerMinX + 0.01
+        const isRight = ezMinX >= outerMaxX - 0.01
+        const isBottom = ezMaxY >= outerMaxY - 0.01
+
+        if (isLeft) {
+          const x = ezMinX * scale + this.renderContext.offsetX
+          const y = ezMinY * scale + this.renderContext.offsetY
+          const w = carveDepthPhysical * scale
+          const h = Math.max(0, (ezMaxY - ezMinY) * scale)
+          this.ctx.fillRect(x, y, w, h)
+        } else if (isRight) {
+          const w = carveDepthPhysical * scale
+          const x = ezMaxX * scale + this.renderContext.offsetX - w
+          const y = ezMinY * scale + this.renderContext.offsetY
+          const h = Math.max(0, (ezMaxY - ezMinY) * scale)
+          this.ctx.fillRect(x, y, w, h)
+        } else if (isBottom) {
+          // For bottom-aligned emergency exits carve across the full bleacher depth, similar to entrance gaps
+          const h = carveDepthPhysical * scale
+          const x = ezMinX * scale + this.renderContext.offsetX
+          const y = ezMaxY * scale + this.renderContext.offsetY - h
+          const w = Math.max(0, (ezMaxX - ezMinX) * scale)
+          this.ctx.fillRect(x, y, w, h)
+        } else {
+          // Fallback: if zone isn't near a gym edge, fall back to carving the zone footprint.
+          const x = ezMinX * scale + this.renderContext.offsetX
+          const y = ezMinY * scale + this.renderContext.offsetY
+          const w = Math.max(0, (ezMaxX - ezMinX) * scale)
+          const h = Math.max(0, (ezMaxY - ezMinY) * scale)
+          this.ctx.fillRect(x, y, w, h)
+        }
+      }
+
+      this.ctx.restore()
     }
     this.ctx.globalAlpha = 1
     this.ctx.restore()

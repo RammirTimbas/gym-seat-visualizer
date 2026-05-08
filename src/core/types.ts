@@ -232,6 +232,9 @@ export interface RenderOptions {
   showLegend?: boolean
   showWarnings?: boolean
   showMeasurements?: boolean // Show gym/stage/seat dimensions
+  // Width of the comfort rooms (meters) rendered inside emergency exit gaps.
+  // If undefined, comfort rooms will span most of the emergency zone width.
+  comfortRoomWidthMeters?: number
   showOccupancy?: boolean // Color code seats by occupancy
   showUtilization?: boolean // Show utilization heat map
   hideEmptySeats?: boolean // Hide seats that are not occupied

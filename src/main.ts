@@ -277,6 +277,16 @@ function setupDOM(): void {
                 <p class="help-text" style="margin:0;">Visual height of emergency exit overlay (affects reserved area)</p>
               </div>
             </div>
+            <div class="control-group">
+              <label>Comfort Room Width (m):</label>
+              <div style="display:flex; gap:8px; align-items:center;">
+                <div class="input-with-label">
+                  <span class="field-label">Width</span>
+                  <input id="comfort-room-width" type="number" min="0.5" step="0.1" placeholder="auto" style="width:100px;" />
+                </div>
+                <p class="help-text" style="margin:0;">Leave empty for auto width based on emergency gap.</p>
+              </div>
+            </div>
             
             <div class="control-group">
               <label>Bottom Tables (meters):</label>
@@ -393,6 +403,20 @@ function setupEventListeners(): void {
   document.getElementById('show-measurements')?.addEventListener('change', (e) => {
     if (state.renderer) {
       state.renderer.setRenderOptions({ showMeasurements: (e.target as HTMLInputElement).checked })
+    }
+  })
+
+  document.getElementById('comfort-room-width')?.addEventListener('change', (e) => {
+    if (!state.renderer) return
+    const val = parseFloat((e.target as HTMLInputElement).value)
+    if (Number.isFinite(val) && val > 0) {
+      state.renderer.setRenderOptions({ comfortRoomWidthMeters: val })
+    } else {
+      state.renderer.setRenderOptions({ comfortRoomWidthMeters: undefined })
+    }
+    // Re-render if there's an active layout
+    if (state.latestLayout) {
+      state.renderer?.loadLayout(state.latestLayout)
     }
   })
 
