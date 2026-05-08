@@ -780,14 +780,23 @@ export class LayoutGenerator {
 
       const emergencyZones: Zone[] = []
 
-      const buildEmergencyFor = (sideBounds: Zone['bounds'] | null, sideId: string) => {
+      const buildEmergencyFor = (sideBounds: Zone['bounds'] | null, sideId: string, position: 'center' | 'top' = 'center') => {
         if (!sideBounds) return
         const minX = Math.max(0, sideBounds.minX - 0.05)
         const maxX = Math.min(this.config.width, sideBounds.maxX + 0.05)
-        // Center emergency zone on the bleacher band's vertical midpoint
-        const centerY = (sideBounds.minY + sideBounds.maxY) / 2
-        let minY = centerY - emergencyHeight / 2
-        let maxY = centerY + emergencyHeight / 2
+
+        let minY, maxY;
+        if (position === 'center') {
+          // Center emergency zone on the bleacher band's vertical midpoint
+          const centerY = (sideBounds.minY + sideBounds.maxY) / 2
+          minY = centerY - emergencyHeight / 2
+          maxY = centerY + emergencyHeight / 2
+        } else {
+          // Upper side: Place at the very top of the bleacher band
+          minY = sideBounds.minY
+          maxY = sideBounds.minY + emergencyHeight
+        }
+
         // Extend slightly forward (toward the floor interior = smaller Y direction)
         minY = Math.max(0, minY - forwardExtension / 2)
         maxY = Math.min(this.config.length, maxY + forwardExtension / 2)
@@ -802,8 +811,13 @@ export class LayoutGenerator {
         }
       }
 
+      // Existing central exits
       buildEmergencyFor(leftBounds, 'emergency-left')
       buildEmergencyFor(rightBounds, 'emergency-right')
+
+      // New upper side exits (no-cr suffix to allow renderer to skip CRs)
+      buildEmergencyFor(leftBounds, 'emergency-stage-left-no-cr', 'top')
+      buildEmergencyFor(rightBounds, 'emergency-stage-right-no-cr', 'top')
 
       if (emergencyZones.length > 0) this.config.zones.push(...emergencyZones)
     } catch (err) {
