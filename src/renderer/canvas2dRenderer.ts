@@ -348,12 +348,14 @@ export class Canvas2DRenderer {
       'table-right': 'Medical Team',
       'emergency-left': 'Emergency Exit',
       'emergency-right': 'Emergency Exit',
-      'aisle-side-left': 'Left Aisle',
-      'aisle-side-right': 'Right Aisle',
+      'aisle-side-left': 'Side Aisle',
+      'aisle-side-right': 'Side Aisle',
       'aisle-front': 'Front Aisle',
       'aisle-back': 'Back Aisle',
       'aisle-carpet': 'Red Carpet',
       'aisle-horizontal': 'Horizontal Aisle',
+      'aisle-vertical-center-left': 'Vertical Aisle',
+      'aisle-vertical-center-right': 'Vertical Aisle',
       'photobooth': 'Photo Booth'
     }
 
@@ -566,11 +568,13 @@ export class Canvas2DRenderer {
         if (aisleLabel) {
           this.ctx.fillStyle = isCarpet ? '#fff7ed' : theme.text
 
-          // Side aisle + red carpet labels: render vertically (top-to-bottom).
+          // Side aisle + red carpet + vertical center aisles: render vertically (top-to-bottom).
           if (
             zone.id === 'aisle-side-left' ||
             zone.id === 'aisle-side-right' ||
-            zone.id === 'aisle-carpet'
+            zone.id === 'aisle-carpet' ||
+            zone.id === 'aisle-vertical-center-left' ||
+            zone.id === 'aisle-vertical-center-right'
           ) {
             this.ctx.save()
             this.ctx.font = 'bold 11px sans-serif'
@@ -1431,6 +1435,9 @@ export class Canvas2DRenderer {
       lines.push(`• Back aisle: ${aisles.back.toFixed(2)}m`)
       lines.push(`• Red carpet: ${aisles.carpet.toFixed(2)}m`)
       lines.push(`• Horizontal aisle: ${(aisles.horizontal ?? 0).toFixed(2)}m`)
+      if ((aisles.centerSide ?? 0) > 0) {
+        lines.push(`• Center Side: ${aisles.centerSide!.toFixed(2)}m each`)
+      }
     }
 
     for (const zone of this.layout.zones) {

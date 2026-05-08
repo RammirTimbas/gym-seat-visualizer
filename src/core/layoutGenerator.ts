@@ -45,7 +45,8 @@ export class LayoutGenerator {
       this.config.aisles.front < 0 ||
       this.config.aisles.back < 0 ||
       this.config.aisles.carpet < 0 ||
-      (this.config.aisles.horizontal ?? 0) < 0
+      (this.config.aisles.horizontal ?? 0) < 0 ||
+      (this.config.aisles.centerSide ?? 0) < 0
     ) {
       throw new Error('Aisle widths cannot be negative')
     }
@@ -401,6 +402,7 @@ export class LayoutGenerator {
       z => z.type !== ZoneType.AISLE && z.type !== ZoneType.BLEACHER
     )
     const { side, front, back, carpet } = this.config.aisles
+    const centerSide = this.config.aisles.centerSide ?? 0
     const horizontal = this.config.aisles.horizontal ?? 0
     const stageMaxY = Math.max(0, this.getStageMaxY())
     const bleacherDepth = this.getBleacherDepth()
@@ -469,6 +471,10 @@ export class LayoutGenerator {
       })
     }
 
+    const centerX = this.config.width / 2
+    const carpetMinX = centerX - carpet / 2
+    const carpetMaxX = centerX + carpet / 2
+
     if (carpet > 0) {
       const minY = stageMaxY + front
       const maxY = this.getBackAisleMinY()
@@ -477,13 +483,53 @@ export class LayoutGenerator {
           id: 'aisle-carpet',
           type: ZoneType.AISLE,
           bounds: {
-            minX: this.config.width / 2 - carpet / 2,
-            maxX: this.config.width / 2 + carpet / 2,
+            minX: carpetMinX,
+            maxX: carpetMaxX,
             minY,
             maxY
           },
           label: 'Red Carpet'
         })
+      }
+    }
+
+    // Additional center-side vertical aisles
+    if (centerSide > 0) {
+      const minY = stageMaxY + front
+      const maxY = this.getBackAisleMinY()
+
+      const leftSideInnerX = this.config.minMargin + bleacherDepth + facultyWidth + side
+      const rightSideInnerX = this.config.width - this.config.minMargin - bleacherDepth - facultyWidth - side
+
+      // Position center-side aisles exactly in the middle between side aisles and carpet
+      const leftCenterAisleX = (leftSideInnerX + carpetMinX) / 2
+      const rightCenterAisleX = (rightSideInnerX + carpetMaxX) / 2
+
+      if (maxY > minY) {
+        this.config.zones.push(
+          {
+            id: 'aisle-vertical-center-left',
+            type: ZoneType.AISLE,
+            bounds: {
+              minX: leftCenterAisleX - centerSide / 2,
+              maxX: leftCenterAisleX + centerSide / 2,
+              minY,
+              maxY
+            },
+            label: 'Vertical Aisle'
+          },
+          {
+            id: 'aisle-vertical-center-right',
+            type: ZoneType.AISLE,
+            bounds: {
+              minX: rightCenterAisleX - centerSide / 2,
+              maxX: rightCenterAisleX + centerSide / 2,
+              minY,
+              maxY
+            },
+            label: 'Vertical Aisle'
+          }
+        )
       }
     }
 
@@ -1099,90 +1145,89 @@ export class LayoutGenerator {
     seatType: typeof this.config.seatTypes[0],
     peopleToAllocate: number
   ): number {
-    const carpetWidth = this.config.aisles.carpet
+    const { carpet, side } = this.config.aisles
+    const centerSide = this.config.aisles.centerSide ?? 0
     const centerX = this.config.width / 2
+    const carpetWidth = carpet
 
-    // If we have a center carpet, we split the row into two sections
-    if (carpetWidth > 0) {
-      const leftSectionEndX = centerX - carpetWidth / 2
-      const rightSectionStartX = centerX + carpetWidth / 2
-      
-      const leftWidth = leftSectionEndX - startX
-      const rightWidth = (startX + usableWidth) - rightSectionStartX
-      
-      const seatsPerSectionLeft = Math.floor(
-        (leftWidth + this.config.horizontalSpacing) / (seatType.width + this.config.horizontalSpacing)
-      )
-      const seatsPerSectionRight = Math.floor(
-        (rightWidth + this.config.horizontalSpacing) / (seatType.width + this.config.horizontalSpacing)
-      )
-      
-      // For even distribution, we take the minimum of both sides
-      const seatsPerSection = Math.min(seatsPerSectionLeft, seatsPerSectionRight)
-      
-      const sectionRowWidth = seatsPerSection * seatType.width + (seatsPerSection - 1) * this.config.horizontalSpacing
-      
-      let placedInRow = 0
-      let positionInRow = 0
+    // We dynamically build seeding blocks based on defined aisles.
+    // If no carpet and no centerSide, we have 1 section.
+    // If only carpet, 2. If carpet + 2 centerSide, 4.
+    const blocks: { minX: number; maxX: number }[] = []
 
-      // Place Left Section
-      const leftRowStartX = leftSectionEndX - sectionRowWidth
-      for (let i = 0; i < seatsPerSection; i++) {
-        if (peopleToAllocate > 0 && placedInRow >= peopleToAllocate) break
-        const seatX = leftRowStartX + i * (seatType.width + this.config.horizontalSpacing) + seatType.width / 2
-        if (!this.isPositionBlocked(seatX, baseY, seatType)) {
-          const seat = this.createSeat(seatX, baseY, rowNumber, positionInRow, seatType)
-          this.seats.push(seat)
-          this.markAreaAsUsed(seatX, baseY, seatType.width, seatType.depth)
-          placedInRow++
-          positionInRow++
-        }
-      }
+    const bleacherDepth = this.getBleacherDepth()
+    const facultyWidth = this.getFacultyWidth()
+    const innerLeftX = this.config.minMargin + bleacherDepth + facultyWidth + side
+    const innerRightX = this.config.width - (this.config.minMargin + bleacherDepth + facultyWidth + side)
+    const carpetHalf = carpetWidth / 2
 
-      // Place Right Section
-      const rightRowStartX = rightSectionStartX
-      for (let i = 0; i < seatsPerSection; i++) {
-        if (peopleToAllocate > 0 && placedInRow >= peopleToAllocate) break
-        const seatX = rightRowStartX + i * (seatType.width + this.config.horizontalSpacing) + seatType.width / 2
-        if (!this.isPositionBlocked(seatX, baseY, seatType)) {
-          const seat = this.createSeat(seatX, baseY, rowNumber, positionInRow, seatType)
-          this.seats.push(seat)
-          this.markAreaAsUsed(seatX, baseY, seatType.width, seatType.depth)
-          placedInRow++
-          positionInRow++
-        }
-      }
+    if (carpetWidth > 0 && centerSide > 0) {
+      // 4 sections
+      const carpetMinX = centerX - carpetHalf
+      const carpetMaxX = centerX + carpetHalf
+      const leftMidX = (innerLeftX + carpetMinX) / 2
+      const rightMidX = (innerRightX + carpetMaxX) / 2
       
-      return placedInRow
+      blocks.push({ minX: innerLeftX, maxX: leftMidX - centerSide / 2 })
+      blocks.push({ minX: leftMidX + centerSide / 2, maxX: carpetMinX })
+      blocks.push({ minX: carpetMaxX, maxX: rightMidX - centerSide / 2 })
+      blocks.push({ minX: rightMidX + centerSide / 2, maxX: innerRightX })
+    } else if (carpetWidth > 0) {
+      // 2 sections
+      blocks.push({ minX: innerLeftX, maxX: centerX - carpetHalf })
+      blocks.push({ minX: centerX + carpetHalf, maxX: innerRightX })
+    } else if (centerSide > 0) {
+      // 3 sections
+      const leftMidX = (innerLeftX + centerX) / 2
+      const rightMidX = (innerRightX + centerX) / 2
+      blocks.push({ minX: innerLeftX, maxX: leftMidX - centerSide / 2 })
+      blocks.push({ minX: leftMidX + centerSide / 2, maxX: rightMidX - centerSide / 2 })
+      blocks.push({ minX: rightMidX + centerSide / 2, maxX: innerRightX })
+    } else {
+      // 1 section
+      blocks.push({ minX: innerLeftX, maxX: innerRightX })
     }
-
-    let positionInRow = 0
-    // Use fixedSeatsPerRow if provided, otherwise calculate max possible
-    const seatsPerRow = this.config.fixedSeatsPerRow ?? Math.floor(
-      (usableWidth + this.config.horizontalSpacing) / (seatType.width + this.config.horizontalSpacing)
-    )
-
-    const totalRowWidth =
-      seatsPerRow * seatType.width + (seatsPerRow - 1) * this.config.horizontalSpacing
-
-    // Center the row exactly based on gym width to ensure symmetry
-    const rowStartX = centerX - totalRowWidth / 2
 
     let placedInRow = 0
-    for (let i = 0; i < seatsPerRow; i++) {
-      if (peopleToAllocate > 0 && placedInRow >= peopleToAllocate) break
+    let positionInRow = 0
 
-      const seatX = rowStartX + i * (seatType.width + this.config.horizontalSpacing) + seatType.width / 2
-      const seatY = baseY
+    // Distribute seats evenly: calculate max seats per block to maintain symmetry
+    const seatsPerBlock = blocks.map(b => {
+      const w = b.maxX - b.minX
+      return Math.floor((w + this.config.horizontalSpacing) / (seatType.width + this.config.horizontalSpacing))
+    })
 
-      if (!this.isPositionBlocked(seatX, seatY, seatType)) {
-        const seat = this.createSeat(seatX, seatY, rowNumber, positionInRow, seatType)
-        this.seats.push(seat)
-        positionInRow++
-        this.markAreaAsUsed(seatX, seatY, seatType.width, seatType.depth)
-        placedInRow++
-      }
+    // For symmetrical sections (far-left/far-right, mid-left/mid-right), we use the smaller capacity
+    // to keep the visual layout balanced.
+    if (blocks.length === 4) {
+      const farMin = Math.min(seatsPerBlock[0], seatsPerBlock[3])
+      const midMin = Math.min(seatsPerBlock[1], seatsPerBlock[2])
+      seatsPerBlock[0] = seatsPerBlock[3] = farMin
+      seatsPerBlock[1] = seatsPerBlock[2] = midMin
+    } else if (blocks.length === 2) {
+      const min = Math.min(seatsPerBlock[0], seatsPerBlock[1])
+      seatsPerBlock[0] = seatsPerBlock[1] = min
     }
+
+    blocks.forEach((block, blockIndex) => {
+      const count = seatsPerBlock[blockIndex]
+      const sectionRowWidth = count * seatType.width + (count - 1) * this.config.horizontalSpacing
+      // Center the block's seats within its available gap
+      const rowStartX = block.minX + (block.maxX - block.minX - sectionRowWidth) / 2
+
+      for (let i = 0; i < count; i++) {
+        if (peopleToAllocate > 0 && placedInRow >= peopleToAllocate) break
+        const seatX = rowStartX + i * (seatType.width + this.config.horizontalSpacing) + seatType.width / 2
+        if (!this.isPositionBlocked(seatX, baseY, seatType)) {
+          const seat = this.createSeat(seatX, baseY, rowNumber, positionInRow, seatType)
+          this.seats.push(seat)
+          this.markAreaAsUsed(seatX, baseY, seatType.width, seatType.depth)
+          placedInRow++
+          positionInRow++
+        }
+      }
+    })
+
     return placedInRow
   }
 

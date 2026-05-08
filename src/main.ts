@@ -233,6 +233,10 @@ function setupDOM(): void {
                   <input id="input-aisle-carpet" type="number" min="0" step="0.1" style="width:70px;" />
                 </div>
                 <div class="input-with-label">
+                  <span class="field-label">Center Side</span>
+                  <input id="input-aisle-center-side" type="number" min="0" step="0.1" style="width:80px;" />
+                </div>
+                <div class="input-with-label">
                   <span class="field-label">Horizontal</span>
                   <input id="input-aisle-horizontal" type="number" min="0" step="0.1" style="width:90px;" />
                 </div>
@@ -846,6 +850,7 @@ function setInputsFromConfig(config: any): void {
   ;(document.getElementById('input-aisle-front') as HTMLInputElement).value = config.aisles?.front ?? 0
   ;(document.getElementById('input-aisle-back') as HTMLInputElement).value = config.aisles?.back ?? 0
   ;(document.getElementById('input-aisle-carpet') as HTMLInputElement).value = config.aisles?.carpet ?? 0
+  ;(document.getElementById('input-aisle-center-side') as HTMLInputElement).value = config.aisles?.centerSide ?? 0
   ;(document.getElementById('input-aisle-horizontal') as HTMLInputElement).value = config.aisles?.horizontal ?? 0
   ;(document.getElementById('bleachers-enabled') as HTMLInputElement).checked = config.bleachers?.enabled || false
   ;(document.getElementById('bleachers-steps') as HTMLInputElement).value = config.bleachers?.numberOfSteps || ''
@@ -917,7 +922,7 @@ function updateConfigFromInputs(): void {
       { type: SeatType.MONOBLOCK, width: 0.5, depth: 0.5, height: 0.4 }
     ],
     zones: [],
-    aisles: { side: 1, front: 1, back: 1, carpet: 2, horizontal: 0 },
+    aisles: { side: 1, front: 1, back: 1, carpet: 2, horizontal: 0, centerSide: 0 },
     bleachers: { enabled: false, width: 2, numberOfSteps: 4, stepHeight: 0.35, stepDepth: 0.6, aisleCount: 2, entranceWidth: 2.5 },
     horizontalSpacing: 0.1,
     verticalSpacing: 0.3,
@@ -982,6 +987,7 @@ function updateConfigFromInputs(): void {
   const aisleFront = parseFloat((document.getElementById('input-aisle-front') as HTMLInputElement).value)
   const aisleBack = parseFloat((document.getElementById('input-aisle-back') as HTMLInputElement).value)
   const aisleCarpet = parseFloat((document.getElementById('input-aisle-carpet') as HTMLInputElement).value)
+  const aisleCenterSide = parseFloat((document.getElementById('input-aisle-center-side') as HTMLInputElement).value)
   const aisleHorizontal = parseFloat((document.getElementById('input-aisle-horizontal') as HTMLInputElement).value)
   const bleachersEnabled = (document.getElementById('bleachers-enabled') as HTMLInputElement).checked
   const bleachersSteps = parseInt((document.getElementById('bleachers-steps') as HTMLInputElement).value, 10)
@@ -1013,6 +1019,7 @@ function updateConfigFromInputs(): void {
   if (isNaN(aisleFront) || aisleFront < 0) errors.push('Front aisle width must be 0 or more')
   if (isNaN(aisleBack) || aisleBack < 0) errors.push('Back aisle width must be 0 or more')
   if (isNaN(aisleCarpet) || aisleCarpet < 0) errors.push('Red carpet width must be 0 or more')
+  if (isNaN(aisleCenterSide) || aisleCenterSide < 0) errors.push('Center side vertical aisle width must be 0 or more')
   if (isNaN(aisleHorizontal) || aisleHorizontal < 0) errors.push('Horizontal aisle width must be 0 or more')
   if (!isNaN(width) && aisleSide * 2 >= width) errors.push('Side aisles are too wide for the gym')
   if (!isNaN(width) && aisleCarpet >= width - aisleSide * 2) errors.push('Red carpet must leave floor space beside it')
@@ -1035,6 +1042,8 @@ function updateConfigFromInputs(): void {
 
   if (bleachersEnabled) {
     if (isNaN(bleachersSteps) || bleachersSteps < 1) errors.push('Bleacher steps must be 1 or more')
+    if (isNaN(bleachersAisles) || bleachersAisles < 0) errors.push('Bleacher aisles must be 0 or more')
+    if (isNaN(bleachersAisleWidth) || bleachersAisleWidth < 0) errors.push('Bleacher aisle width must be 0 or more')
     if (isNaN(bleachersAisles) || bleachersAisles < 0) errors.push('Bleacher aisles must be 0 or more')
     if (isNaN(bleachersAisleWidth) || bleachersAisleWidth < 0) errors.push('Bleacher aisle width must be 0 or more')
     if (isNaN(bleachersWidth) || bleachersWidth < 0.5) errors.push('Bleacher depth must be at least 0.5m')
@@ -1066,6 +1075,7 @@ function updateConfigFromInputs(): void {
   config.aisles.front = aisleFront
   config.aisles.back = aisleBack
   config.aisles.carpet = aisleCarpet
+  config.aisles.centerSide = aisleCenterSide
   config.aisles.horizontal = aisleHorizontal
   config.bleachers = config.bleachers || {}
   config.bleachers.enabled = bleachersEnabled
@@ -1254,10 +1264,13 @@ function updateStats(layout: any): void {
     mHtml += `<div class="stat-item"><span class="stat-label">Bleacher:</span><span class="stat-value">${(maxX - minX).toFixed(2)}m × ${(maxY - minY).toFixed(2)}m</span></div>`
   }
   if (layout.config?.aisles) {
-    const { side, front, back, carpet } = layout.config.aisles
+    const { side, front, back, carpet, centerSide } = layout.config.aisles
     mHtml += `<div class="stat-item"><span class="stat-label">Side Aisles:</span><span class="stat-value">${side.toFixed(2)}m each</span></div>`
     mHtml += `<div class="stat-item"><span class="stat-label">Front/Back:</span><span class="stat-value">${front.toFixed(2)}m / ${back.toFixed(2)}m</span></div>`
     mHtml += `<div class="stat-item"><span class="stat-label">Red Carpet:</span><span class="stat-value">${carpet.toFixed(2)}m</span></div>`
+    if (centerSide > 0) {
+      mHtml += `<div class="stat-item"><span class="stat-label">Center Side:</span><span class="stat-value">${centerSide.toFixed(2)}m each</span></div>`
+    }
   }
   measurementsContainer.innerHTML = mHtml || '<p>No measurements available</p>'
 }
