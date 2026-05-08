@@ -13,6 +13,9 @@ export class Canvas2DRenderer {
   private layoutAlert: LayoutAlert | null = null
   private renderContext: RenderContext
   private renderOptions: RenderOptions
+  // Computed comfort rooms and clearance corridors (in meters) used to remove seats
+  private comfortRooms: Array<{ minX: number; minY: number; maxX: number; maxY: number; label: string }> = []
+  private clearanceCorridors: Array<{ minX: number; minY: number; maxX: number; maxY: number }> = []
 
   // Theme colors
   private colors = {
@@ -78,6 +81,7 @@ export class Canvas2DRenderer {
       hideEmptySeats: false,
       theme: 'light',
       comfortRoomWidthMeters: undefined,
+      comfortRoomHeightMeters: undefined,
       ...initialOptions
     }
 
@@ -219,6 +223,9 @@ export class Canvas2DRenderer {
     if (this.renderOptions.showZones) {
       this.drawZones()
     }
+
+    // Compute comfort rooms and clearance corridors before drawing seats
+    this.computeComfortRoomsAndCorridors()
 
     // Draw gym border and label before seats and overlays
     this.drawGymBorder()
@@ -614,61 +621,8 @@ export class Canvas2DRenderer {
         alpha = 0.92
       }
       if (zone.type === ZoneType.EMERGENCY) {
-        // Emergency exit should be a gap only (no visual zone). Render the Comfort Rooms
-        // inside the gap as explicit visual zones. Their width (meters) can be set via
-        // `renderOptions.comfortRoomWidthMeters`; otherwise they span most of the emergency width.
-        this.ctx.save()
-
-        const zoneWidthMeters = zone.bounds.maxX - zone.bounds.minX
-        const zoneHeightMeters = zone.bounds.maxY - zone.bounds.minY
-        const crWidthMeters =
-          this.renderOptions.comfortRoomWidthMeters && this.renderOptions.comfortRoomWidthMeters > 0
-            ? Math.min(this.renderOptions.comfortRoomWidthMeters, zoneWidthMeters - 0.1)
-            : Math.max(0.25 * zoneWidthMeters, zoneWidthMeters - 0.2)
-
-        const crWidthPx = crWidthMeters * (this.renderContext.scale)
-        const zoneWidthPx = width
-        const zoneHeightPx = height
-        const crX = x1 + (zoneWidthPx - crWidthPx) / 2
-        const paddingPx = Math.max(6, 0.04 * zoneWidthPx)
-        const halfH = zoneHeightPx / 2
-        const innerH = Math.max(12, halfH - paddingPx * 1.2)
-
-        // Visual style for comfort rooms (use medical color to indicate facilities)
-        const crFill = (theme.zone as any).medical
-        const crBorder = (theme.zone as any).medical
-
-        // Upper - Men
-        const menY = y1 + paddingPx
-        this.ctx.fillStyle = crFill
-        this.ctx.globalAlpha = 0.75
-        this.ctx.fillRect(crX, menY, crWidthPx, innerH)
-        this.ctx.globalAlpha = 1
-        this.ctx.strokeStyle = crBorder
-        this.ctx.lineWidth = 2
-        this.ctx.strokeRect(crX, menY, crWidthPx, innerH)
-
-        // Lower - Female
-        const femaleY = y1 + halfH + paddingPx / 2
-        this.ctx.fillStyle = crFill
-        this.ctx.globalAlpha = 0.75
-        this.ctx.fillRect(crX, femaleY, crWidthPx, innerH)
-        this.ctx.globalAlpha = 1
-        this.ctx.strokeStyle = crBorder
-        this.ctx.lineWidth = 2
-        this.ctx.strokeRect(crX, femaleY, crWidthPx, innerH)
-
-        // Labels
-        if (this.renderOptions.showLabels) {
-          this.ctx.fillStyle = theme.text
-          this.ctx.font = 'bold 12px sans-serif'
-          this.ctx.textAlign = 'center'
-          this.ctx.textBaseline = 'middle'
-          this.ctx.fillText('Comfort Room — Men', crX + crWidthPx / 2, menY + innerH / 2)
-          this.ctx.fillText('Comfort Room — Female', crX + crWidthPx / 2, femaleY + innerH / 2)
-        }
-
-        this.ctx.restore()
+        // Emergency exit is rendered as a physical gap; visual Comfort Rooms
+        // are drawn once after the zone loop (see bottom of this function).
       } else {
         this.ctx.fillStyle = zoneColor
         this.ctx.globalAlpha = alpha
@@ -689,6 +643,37 @@ export class Canvas2DRenderer {
       }
 
       this.ctx.restore()
+    }
+    // Draw computed comfort rooms once (they were computed earlier)
+    if (this.comfortRooms.length > 0) {
+      for (const cr of this.comfortRooms) {
+        const cx1 = cr.minX * this.renderContext.scale + this.renderContext.offsetX
+        const cy1 = cr.minY * this.renderContext.scale + this.renderContext.offsetY
+        const cx2 = cr.maxX * this.renderContext.scale + this.renderContext.offsetX
+        const cy2 = cr.maxY * this.renderContext.scale + this.renderContext.offsetY
+        const cw = cx2 - cx1
+        const ch = cy2 - cy1
+
+        this.ctx.save()
+        const crFill = (theme.zone as any).medical
+        const crBorder = (theme.zone as any).medical
+        this.ctx.fillStyle = crFill
+        this.ctx.globalAlpha = 0.75
+        this.ctx.fillRect(cx1, cy1, cw, ch)
+        this.ctx.globalAlpha = 1
+        this.ctx.strokeStyle = crBorder
+        this.ctx.lineWidth = 2
+        this.ctx.strokeRect(cx1, cy1, cw, ch)
+
+        if (this.renderOptions.showLabels) {
+          this.ctx.fillStyle = theme.text
+          this.ctx.font = 'bold 12px sans-serif'
+          this.ctx.textAlign = 'center'
+          this.ctx.textBaseline = 'middle'
+          this.ctx.fillText(cr.label, cx1 + cw / 2, cy1 + ch / 2)
+        }
+        this.ctx.restore()
+      }
     }
   }
 
@@ -722,6 +707,138 @@ export class Canvas2DRenderer {
     lines.forEach((line, i) => {
       this.ctx.fillText(line, centerX, startY + i * lineHeight)
     })
+  }
+
+  /**
+   * Compute comfort room rectangles (in meters) and clearance corridors connecting them to nearest aisles.
+   * This must run before seat drawing so seats can be omitted in these areas.
+   */
+  private computeComfortRoomsAndCorridors(): void {
+    this.comfortRooms = []
+    this.clearanceCorridors = []
+    if (!this.layout) return
+
+    const aisles = this.layout.zones.filter(z => z.type === ZoneType.AISLE)
+    const emergencies = this.layout.zones.filter(z => z.type === ZoneType.EMERGENCY)
+
+    for (const ez of emergencies) {
+      const zoneW = ez.bounds.maxX - ez.bounds.minX
+      const zoneH = ez.bounds.maxY - ez.bounds.minY
+
+      // Determine CR dimensions (meters)
+      const crW = this.renderOptions.comfortRoomWidthMeters && this.renderOptions.comfortRoomWidthMeters > 0
+        ? Math.min(this.renderOptions.comfortRoomWidthMeters, Math.max(0.1, zoneW - 0.1))
+        : Math.max(0.25 * zoneW, zoneW - 0.2)
+
+      const crH = this.renderOptions.comfortRoomHeightMeters && this.renderOptions.comfortRoomHeightMeters > 0
+        ? Math.min(this.renderOptions.comfortRoomHeightMeters, Math.max(0.1, zoneH - 0.1))
+        : Math.max(0.2 * zoneH, Math.min(zoneH / 2 - 0.1, zoneH - 0.2))
+
+      // Place CRs at the extreme top and bottom inside emergency gap
+      const centerX = (ez.bounds.minX + ez.bounds.maxX) / 2
+      const crMinX = Math.max(ez.bounds.minX + 0.05, centerX - crW / 2)
+      const crMaxX = Math.min(ez.bounds.maxX - 0.05, centerX + crW / 2)
+
+      const padding = 0.05
+      // Top (Men) - align to top edge inside gap
+      const topMinY = ez.bounds.minY + padding
+      const topMaxY = Math.min(ez.bounds.minY + padding + crH, ez.bounds.maxY - padding)
+      this.comfortRooms.push({ minX: crMinX, minY: topMinY, maxX: crMaxX, maxY: topMaxY, label: 'Comfort Room — Men' })
+
+      // Bottom (Female) - align to bottom edge inside gap
+      const bottomMaxY = ez.bounds.maxY - padding
+      const bottomMinY = Math.max(ez.bounds.maxY - padding - crH, ez.bounds.minY + padding)
+      this.comfortRooms.push({ minX: crMinX, minY: bottomMinY, maxX: crMaxX, maxY: bottomMaxY, label: 'Comfort Room — Female' })
+
+      // For each comfort room find nearest aisle and create a clearance corridor
+      for (const cr of this.comfortRooms.slice(-2)) {
+        let bestAisle: any = null
+        let bestDist = Infinity
+        for (const a of aisles) {
+          const dist = this.rectsDistance(cr, a.bounds)
+          if (dist < bestDist) {
+            bestDist = dist
+            bestAisle = a
+          }
+        }
+
+        // If no aisle found, connect to nearest gym edge to guarantee a clear path
+        let aisleBounds = bestAisle ? bestAisle.bounds : null
+        if (!aisleBounds && this.layout?.config) {
+          const gymW = this.layout.config.width
+          const crCenterX = (cr.minX + cr.maxX) / 2
+          // connect horizontally to left or right edge depending on CR position
+          if (crCenterX < gymW / 2) {
+            aisleBounds = { minX: 0, minY: 0, maxX: 0, maxY: this.layout.config.length }
+          } else {
+            aisleBounds = { minX: this.layout.config.width, minY: 0, maxX: this.layout.config.width, maxY: this.layout.config.length }
+          }
+        }
+
+        if (!aisleBounds) continue
+
+        // Compute corridor as minimal axis-aligned rectangle connecting CR and aisle
+        const corridor = this.computeAxisAlignedCorridor(cr, aisleBounds)
+        // Expand for robust clearance (approx typical aisle width)
+        const expand = 0.85
+        corridor.minX = Math.max(0, corridor.minX - expand)
+        corridor.minY = Math.max(0, corridor.minY - expand)
+        corridor.maxX = Math.min(this.layout.config?.width || corridor.maxX, corridor.maxX + expand)
+        corridor.maxY = Math.min(this.layout.config?.length || corridor.maxY, corridor.maxY + expand)
+
+        this.clearanceCorridors.push(corridor)
+      }
+    }
+  }
+
+  private computeAxisAlignedCorridor(a: { minX: number; minY: number; maxX: number; maxY: number }, b: { minX: number; minY: number; maxX: number; maxY: number }) {
+    // If horizontally overlapping, create vertical corridor
+    if (b.minX <= a.maxX && b.maxX >= a.minX) {
+      return {
+        minX: Math.max(a.minX, b.minX),
+        maxX: Math.min(a.maxX, b.maxX),
+        minY: Math.min(a.minY, b.minY),
+        maxY: Math.max(a.maxY, b.maxY)
+      }
+    }
+    // If vertically overlapping, create horizontal corridor
+    if (b.minY <= a.maxY && b.maxY >= a.minY) {
+      return {
+        minX: Math.min(a.minX, b.minX),
+        maxX: Math.max(a.maxX, b.maxX),
+        minY: Math.max(a.minY, b.minY),
+        maxY: Math.min(a.maxY, b.maxY)
+      }
+    }
+
+    // Otherwise return bounding box between the two
+    return {
+      minX: Math.min(a.minX, b.minX),
+      minY: Math.min(a.minY, b.minY),
+      maxX: Math.max(a.maxX, b.maxX),
+      maxY: Math.max(a.maxY, b.maxY)
+    }
+  }
+
+  private rectsDistance(a: { minX: number; minY: number; maxX: number; maxY: number }, b: { minX: number; minY: number; maxX: number; maxY: number }) {
+    const dx = Math.max(0, Math.max(b.minX - a.maxX, a.minX - b.maxX))
+    const dy = Math.max(0, Math.max(b.minY - a.maxY, a.minY - b.maxY))
+    return Math.sqrt(dx * dx + dy * dy)
+  }
+
+  private isSeatInClearance(seat: Seat) {
+    if (!this.layout) return false
+    const x = seat.position.x
+    const y = seat.position.y
+    // Emergency zones
+    for (const ez of this.layout.zones.filter(z => z.type === ZoneType.EMERGENCY)) {
+      if (x >= ez.bounds.minX - 1e-6 && x <= ez.bounds.maxX + 1e-6 && y >= ez.bounds.minY - 1e-6 && y <= ez.bounds.maxY + 1e-6) return true
+    }
+    // Clearance corridors
+    for (const c of this.clearanceCorridors) {
+      if (x >= c.minX - 1e-6 && x <= c.maxX + 1e-6 && y >= c.minY - 1e-6 && y <= c.maxY + 1e-6) return true
+    }
+    return false
   }
 
   /**
@@ -772,6 +889,11 @@ export class Canvas2DRenderer {
 
     for (const seat of this.layout.seats) {
       if (this.renderOptions.hideEmptySeats && !seat.metadata.occupied) {
+        continue
+      }
+
+      // Skip seats that are inside emergency gaps or clearance corridors
+      if (this.isSeatInClearance(seat)) {
         continue
       }
 
@@ -853,23 +975,8 @@ export class Canvas2DRenderer {
     }
 
     for (const seat of orderedSeats) {
-      // Do not draw bleacher seats that fall inside emergency exit zones (they become the gap/pathway)
-      if (this.layout) {
-        const ezs = this.layout.zones.filter(z => z.type === ZoneType.EMERGENCY)
-        let skip = false
-        for (const ez of ezs) {
-          if (
-            seat.position.x >= ez.bounds.minX - 1e-6 &&
-            seat.position.x <= ez.bounds.maxX + 1e-6 &&
-            seat.position.y >= ez.bounds.minY - 1e-6 &&
-            seat.position.y <= ez.bounds.maxY + 1e-6
-          ) {
-            skip = true
-            break
-          }
-        }
-        if (skip) continue
-      }
+      // Do not draw bleacher seats that fall inside emergency exit zones or clearance corridors
+      if (this.isSeatInClearance(seat)) continue
       const color = seat.metadata.occupied ? '#10b981' : '#3b82f6'
       const x = seat.position.x * scale + this.renderContext.offsetX
       const y = seat.position.y * scale + this.renderContext.offsetY
