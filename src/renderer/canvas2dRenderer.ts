@@ -1285,7 +1285,11 @@ export class Canvas2DRenderer {
     if (ezs.length > 0) {
       this.ctx.save()
       this.clipToGymFootprint()
-      this.ctx.globalCompositeOperation = 'destination-out'
+      
+      // Instead of destination-out (which creates transparency holes that look dark in exports),
+      // we overpaint with the background color to create a clean gap.
+      this.ctx.fillStyle = theme.background
+      this.ctx.globalAlpha = 1
 
       // Carve a gap into the bleacher area so it behaves like an entrance gap (bleachers stop there).
       // Use full bleacher depth so the bleacher bands do not render across the emergency opening.
@@ -1823,7 +1827,7 @@ export class Canvas2DRenderer {
     return JSON.stringify(this.layout, null, 2)
   }
 
-  exportPNG(exportWidth = 1800, exportHeight = 1200): string {
+  exportPNG(exportWidth = 3000, exportHeight = 2000): string {
     const previousOptions = { ...this.renderOptions }
     const previousContext = { ...this.renderContext }
     const previousCanvas = this.canvas
@@ -1839,16 +1843,14 @@ export class Canvas2DRenderer {
     const offCtx = offscreen.getContext('2d')
     if (!offCtx) throw new Error('Could not get offscreen 2D context')
     this.ctx = offCtx
+    
+    // Set high quality smoothing
+    this.ctx.imageSmoothingEnabled = true
+    this.ctx.imageSmoothingQuality = 'high'
 
-    // Use export-friendly options and force labels on so numbers appear
+    // Maintain existing user render options (do not force labels if disabled in UI)
     this.renderOptions = {
-      ...this.renderOptions,
-      showLabels: true,
-      showSeatNumbers: true,
-      showZones: true,
-      showLegend: true,
-      showMeasurements: true,
-      showWarnings: true
+      ...this.renderOptions
     }
 
     this.renderContext = { ...this.renderContext, width: exportWidth, height: exportHeight }
