@@ -55,6 +55,33 @@ export class LayoutGenerator {
     stage.bounds.maxX = centerX + stageW / 2
   }
 
+  private rescaleNonGeneratedZones(prevW: number, prevL: number): void {
+    if (!this.config.zones || this.config.zones.length === 0) return
+    if (prevW <= 0 || prevL <= 0) return
+
+    const sx = this.config.width / prevW
+    const sy = this.config.length / prevL
+    if (!Number.isFinite(sx) || !Number.isFinite(sy) || sx <= 0 || sy <= 0) return
+
+    // Scale user-provided zones (stage/tables/photobooth/etc.) so they remain positioned
+    // correctly after autoscaling. Generated zones (aisles/bleachers/emergency/entrance)
+    // are created later and should not be scaled here.
+    for (const z of this.config.zones) {
+      if (
+        z.type === ZoneType.AISLE ||
+        z.type === ZoneType.BLEACHER ||
+        z.type === ZoneType.EMERGENCY
+      ) {
+        continue
+      }
+
+      z.bounds.minX *= sx
+      z.bounds.maxX *= sx
+      z.bounds.minY *= sy
+      z.bounds.maxY *= sy
+    }
+  }
+
   /**
    * Validate configuration for logical consistency
    */
@@ -1584,8 +1611,11 @@ export class LayoutGenerator {
     while (highCount < targetPeople && high < maxScale) {
       low = high
       high = Math.min(maxScale, high * 1.25)
+      const prevW = this.config.width
+      const prevL = this.config.length
       this.config.width = baseW * high
       this.config.length = baseL * high
+      this.rescaleNonGeneratedZones(prevW, prevL)
       this.recenterStageZone()
       highCount = tryGenerate()
     }
@@ -1598,8 +1628,11 @@ export class LayoutGenerator {
     // Binary search for the smallest scale that still fits the target to keep the gym "full".
     for (let i = 0; i < 10; i++) {
       const mid = (low + high) / 2
+      const prevW = this.config.width
+      const prevL = this.config.length
       this.config.width = baseW * mid
       this.config.length = baseL * mid
+      this.rescaleNonGeneratedZones(prevW, prevL)
       this.recenterStageZone()
       const c = tryGenerate()
       if (c >= targetPeople) {
@@ -1609,8 +1642,11 @@ export class LayoutGenerator {
       }
     }
 
+    const prevW = this.config.width
+    const prevL = this.config.length
     this.config.width = baseW * high
     this.config.length = baseL * high
+    this.rescaleNonGeneratedZones(prevW, prevL)
     this.recenterStageZone()
   }
 

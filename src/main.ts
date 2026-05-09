@@ -1141,10 +1141,21 @@ function updateConfigFromInputs(): void {
     const bleacherDepth = bleachersEnabled ? bleachersWidth : 0
     const sideClearance = config.minMargin + config.aisles.side + bleacherDepth + facultyWidth
     const carpetHalfWidth = config.aisles.carpet / 2
-    const leftSectionMinX = sideClearance
-    const leftSectionMaxX = config.width / 2 - carpetHalfWidth
-    const rightSectionMinX = config.width / 2 + carpetHalfWidth
-    const rightSectionMaxX = config.width - sideClearance
+
+    // Place each Medical Team zone centered between the side aisle clearance and the red carpet,
+    // regardless of any additional center-side aisles.
+    // Also respect the bottom chamfer (inset) so "centered" matches what users see on the footprint.
+    const bottomInset = Math.min(config.width * 0.14, 4)
+    const innerLeftX = Math.max(sideClearance, bottomInset)
+    const innerRightX = Math.min(config.width - sideClearance, config.width - bottomInset)
+    const carpetMinX = config.width / 2 - carpetHalfWidth
+    const carpetMaxX = config.width / 2 + carpetHalfWidth
+
+    const leftSectionMinX = innerLeftX
+    const leftSectionMaxX = carpetMinX
+    const rightSectionMinX = carpetMaxX
+    const rightSectionMaxX = innerRightX
+
     const leftSectionCenterX = (leftSectionMinX + leftSectionMaxX) / 2
     const rightSectionCenterX = (rightSectionMinX + rightSectionMaxX) / 2
     const leftMinX = leftSectionCenterX - tableWidth / 2
@@ -1252,7 +1263,7 @@ function updateStats(layout: any): void {
 
   const statsHtml = `
     <div class="stat-item"><span class="stat-label">Total Seats:</span><span class="stat-value">${layout.totalSeats}</span></div>
-    <div class="stat-item" style="padding-left: 10px; border-bottom: 1px dashed #eee;"><span class="stat-label">└ Faculty:</span><span class="stat-value">${facultySeats}</span></div>
+    <div class="stat-item" style="padding-left: 10px; border-bottom: 1px dashed #eee;"><span class="stat-label">└ PWD:</span><span class="stat-value">${facultySeats}</span></div>
     <div class="stat-item" style="padding-left: 10px; border-bottom: 1px dashed #eee;"><span class="stat-label">└ Ordinary:</span><span class="stat-value">${ordinarySeats}</span></div>
     ${bleacherCount > 0 ? `<div class="stat-item" style="padding-left: 10px; border-bottom: 1px dashed #eee;"><span class="stat-label">└ Bleachers:</span><span class="stat-value">${bleacherCount}</span></div>` : ''}
     <div class="stat-item" style="margin-top: 8px;"><span class="stat-label">Utilization:</span><span class="stat-value">${(layout.utilizationRatio * 100).toFixed(1)}%</span></div>
