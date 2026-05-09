@@ -173,20 +173,17 @@ export class LayoutGenerator {
     // Adjust bottom zones to sit on top of bleachers
     this.shiftBottomZones()
 
-    // Add aisle zones based on config
-    this.addAisleZones()
-    
-    // Reserve STAGE first (bleachers must respect the stage)
-    this.reserveZoneList(this.config.zones.filter(z => z.type === ZoneType.STAGE))
-
-    // Place bleachers first (they are not controlled by targetPeople; targetPeople only
-    // caps ordinary floor seats / "graduates").
     const targetPeople =
       Number.isFinite((this.config as any).targetPeople) && (this.config as any).targetPeople > 0
         ? (this.config as any).targetPeople
         : null
 
     let floorPeopleRemaining = targetPeople ?? Number.POSITIVE_INFINITY
+
+    // Add aisle zones based on config
+    this.addAisleZones(floorPeopleRemaining)
+    
+    // Reserve STAGE first (bleachers must respect the stage)
 
     if (this.config.bleachers?.enabled) {
       this.placeBleachers(Number.POSITIVE_INFINITY)
@@ -470,14 +467,13 @@ export class LayoutGenerator {
   /**
    * Add aisle zones to config.zones based on aisle controls
    */
-  private addAisleZones(): void {
+  private addAisleZones(peopleToAllocate: number): void {
     // Remove any previous aisle zones
     this.config.zones = this.config.zones.filter(
       z => z.type !== ZoneType.AISLE && z.type !== ZoneType.BLEACHER
     )
     const { side, front, back, carpet } = this.config.aisles
     const centerSide = this.config.aisles.centerSide ?? 0
-    const horizontal = this.config.aisles.horizontal ?? 0
     const stageMaxY = Math.max(0, this.getStageMaxY())
     const bleacherDepth = this.getBleacherDepth()
     const facultyWidth = this.getFacultyWidth()
@@ -607,31 +603,20 @@ export class LayoutGenerator {
       }
     }
 
-    // Horizontal (cross) aisle centered in usable floor height
-    if (horizontal > 0) {
-      const usableMinY = stageMaxY + front
-      const usableMaxY = this.getBackAisleMinY()
-      if (usableMaxY > usableMinY + 0.05) {
-        const centerY = (usableMinY + usableMaxY) / 2
-        const aisleMinY = Math.max(usableMinY, centerY - horizontal / 2)
-        const aisleMaxY = Math.min(usableMaxY, centerY + horizontal / 2)
-
-        // Only add if it has visible height inside the usable region
-        if (aisleMaxY - aisleMinY > 0.05) {
-          this.config.zones.push({
-            id: 'aisle-horizontal',
-            type: ZoneType.AISLE,
-            bounds: {
-              minX: this.config.minMargin + bleacherDepth + facultyWidth + side,
-              maxX:
-                this.config.width - this.config.minMargin - bleacherDepth - facultyWidth - side,
-              minY: aisleMinY,
-              maxY: aisleMaxY
-            },
-            label: 'Horizontal Aisle'
-          })
-        }
-      }
+    // Horizontal (cross) aisle: structurally divide rows into two equal halves.
+    const splitInfo = this.getHorizontalAisleSplit(peopleToAllocate)
+    if (splitInfo) {
+      this.config.zones.push({
+        id: 'aisle-horizontal',
+        type: ZoneType.AISLE,
+        bounds: {
+          minX: this.config.minMargin + bleacherDepth + facultyWidth + side,
+          maxX: this.config.width - this.config.minMargin - bleacherDepth - facultyWidth - side,
+          minY: splitInfo.minY,
+          maxY: splitInfo.minY + splitInfo.aisleWidth
+        },
+        label: 'Horizontal Aisle'
+      })
     }
   }
 
@@ -1192,39 +1177,17 @@ export class LayoutGenerator {
       this.floorLeftPlaced = this.floorRightPlaced = 0
     }
 
-    // Optional horizontal (cross) aisle: skip placing rows through this Y band.
-    const horizontalAisle = this.config.aisles.horizontal ?? 0
-    let horizontalAisleMinY = Number.POSITIVE_INFINITY
-    let horizontalAisleMaxY = Number.NEGATIVE_INFINITY
-    if (horizontalAisle > 0 && maxY > seatingStartY + 0.05) {
-      const centerY = (seatingStartY + maxY) / 2
-      horizontalAisleMinY = Math.max(seatingStartY, centerY - horizontalAisle / 2)
-      horizontalAisleMaxY = Math.min(maxY, centerY + horizontalAisle / 2)
-      if (horizontalAisleMaxY - horizontalAisleMinY <= 0.05) {
-        horizontalAisleMinY = Number.POSITIVE_INFINITY
-        horizontalAisleMaxY = Number.NEGATIVE_INFINITY
-      }
-    }
-
-    // If fixedRows is set, we might need to adjust vertical spacing to fit them
-    // or just stop when we hit the limit.
-    const maxRows = this.config.fixedRows ?? this.config.maxRows ?? Number.POSITIVE_INFINITY
-
+    // Optional horizontal (cross) aisle: structurally divide rows into two equal halves.
+    const splitInfo = this.getHorizontalAisleSplit(peopleToAllocate)
     const pitch = seatType.depth + this.config.verticalSpacing
+
     let currentY = seatingStartY + seatType.depth / 2
-
     while (currentY + seatType.depth / 2 < maxY) {
-      if (rowNumber >= maxRows) break
+      if (rowNumber >= (splitInfo?.totalRows ?? Number.POSITIVE_INFINITY)) break
 
-      const rowMinY = currentY - seatType.depth / 2
-      const rowMaxY = currentY + seatType.depth / 2
-      const intersectsHorizontalAisle =
-        rowMaxY > horizontalAisleMinY && rowMinY < horizontalAisleMaxY
-
-      if (intersectsHorizontalAisle) {
-        // Jump to the first row center that sits fully below the aisle band.
-        currentY = horizontalAisleMaxY + seatType.depth / 2
-        continue
+      // If we've reached the split point, inject the horizontal aisle gap.
+      if (splitInfo && rowNumber === splitInfo.splitRow) {
+        currentY += splitInfo.aisleWidth
       }
 
       // Orient row to face stage (all rows parallel to stage front)
@@ -1234,6 +1197,103 @@ export class LayoutGenerator {
 
       currentY += pitch
     }
+  }
+
+  /**
+   * Calculate where the horizontal aisle should split the rows
+   */
+  private getHorizontalAisleSplit(peopleToAllocate: number): { splitRow: number; totalRows: number; aisleWidth: number; minY: number } | null {
+    const horizontal = this.config.aisles.horizontal ?? 0
+    if (horizontal <= 0) return null
+
+    const seatType = this.config.seatTypes[0]
+    if (!seatType) return null
+
+    const floorBounds = this.getUsableFloorBounds()
+    const pitch = seatType.depth + this.config.verticalSpacing
+    const maxPotentialRows = this.config.fixedRows ?? this.config.maxRows ?? Number.POSITIVE_INFINITY
+
+    // Calculate how many rows we can fit in total, accounting for the horizontal aisle space.
+    const usableHeight = floorBounds.maxY - floorBounds.minY
+    const totalRowsFit = Math.floor((usableHeight - horizontal + this.config.verticalSpacing) / pitch)
+    
+    // Estimate how many rows we actually need based on the allocation target.
+    const seatsPerRow = this.getSeatsPerRow()
+    const totalRowsRequired = seatsPerRow > 0 ? Math.ceil(peopleToAllocate / seatsPerRow) : totalRowsFit
+    
+    const totalRowsToPlace = Math.min(totalRowsFit, maxPotentialRows, totalRowsRequired)
+
+    if (totalRowsToPlace <= 1) return null
+
+    // For 24 rows, split is 12. For 25 rows, split is 13 (so 13 top, 12 bottom).
+    const splitRow = Math.ceil(totalRowsToPlace / 2)
+    
+    // Calculate the Y where the aisle starts. 
+    // It starts after 'splitRow' rows.
+    const minY = floorBounds.minY + splitRow * pitch - this.config.verticalSpacing
+    
+    return {
+      splitRow,
+      totalRows: totalRowsToPlace,
+      aisleWidth: horizontal,
+      minY
+    }
+  }
+
+  private getSeatsPerRow(): number {
+    const seatType = this.config.seatTypes[0]
+    if (!seatType) return 0
+    
+    const { side, carpet } = this.config.aisles
+    const centerSide = this.config.aisles.centerSide ?? 0
+    const centerX = this.config.width / 2
+    const carpetWidth = carpet
+
+    const bleacherDepth = this.getBleacherDepth()
+    const facultyWidth = this.getFacultyWidth()
+    const innerLeftX = this.config.minMargin + bleacherDepth + facultyWidth + side
+    const innerRightX = this.config.width - (this.config.minMargin + bleacherDepth + facultyWidth + side)
+    const carpetHalf = carpetWidth / 2
+
+    const blocks: { minX: number; maxX: number }[] = []
+    if (carpetWidth > 0 && centerSide > 0) {
+      const carpetMinX = centerX - carpetHalf
+      const carpetMaxX = centerX + carpetHalf
+      const leftMidX = (innerLeftX + carpetMinX) / 2
+      const rightMidX = (innerRightX + carpetMaxX) / 2
+      blocks.push({ minX: innerLeftX, maxX: leftMidX - centerSide / 2 })
+      blocks.push({ minX: leftMidX + centerSide / 2, maxX: carpetMinX })
+      blocks.push({ minX: carpetMaxX, maxX: rightMidX - centerSide / 2 })
+      blocks.push({ minX: rightMidX + centerSide / 2, maxX: innerRightX })
+    } else if (carpetWidth > 0) {
+      blocks.push({ minX: innerLeftX, maxX: centerX - carpetHalf })
+      blocks.push({ minX: centerX + carpetHalf, maxX: innerRightX })
+    } else if (centerSide > 0) {
+      const leftMidX = (innerLeftX + centerX) / 2
+      const rightMidX = (innerRightX + centerX) / 2
+      blocks.push({ minX: innerLeftX, maxX: leftMidX - centerSide / 2 })
+      blocks.push({ minX: leftMidX + centerSide / 2, maxX: rightMidX - centerSide / 2 })
+      blocks.push({ minX: rightMidX + centerSide / 2, maxX: innerRightX })
+    } else {
+      blocks.push({ minX: innerLeftX, maxX: innerRightX })
+    }
+
+    const seatsPerBlock = blocks.map(b => {
+      const w = b.maxX - b.minX
+      return Math.floor((w + this.config.horizontalSpacing) / (seatType.width + this.config.horizontalSpacing))
+    })
+
+    if (blocks.length === 4) {
+      const farMin = Math.min(seatsPerBlock[0], seatsPerBlock[3])
+      const midMin = Math.min(seatsPerBlock[1], seatsPerBlock[2])
+      seatsPerBlock[0] = seatsPerBlock[3] = farMin
+      seatsPerBlock[1] = seatsPerBlock[2] = midMin
+    } else if (blocks.length === 2) {
+      const min = Math.min(seatsPerBlock[0], seatsPerBlock[1])
+      seatsPerBlock[0] = seatsPerBlock[1] = min
+    }
+
+    return seatsPerBlock.reduce((a, b) => a + b, 0)
   }
 
   // Place a smart row, stop if peopleToAllocate reached
