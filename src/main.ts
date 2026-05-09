@@ -368,7 +368,7 @@ function setupDOM(): void {
                 <input type="checkbox" id="show-labels" checked /> Show Labels
               </label>
               <label>
-                <input type="checkbox" id="show-seat-numbers" checked /> Show Seat Numbers
+                <input type="checkbox" id="show-seat-numbers" /> Show Seat Numbers
               </label>
               <label>
                 <input type="checkbox" id="show-zones" checked /> Show Zones

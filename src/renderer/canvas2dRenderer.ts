@@ -77,7 +77,7 @@ export class Canvas2DRenderer {
     this.renderOptions = {
       showGrid: true,
       showLabels: true,
-      showSeatNumbers: true,
+      showSeatNumbers: false,
       showZones: true,
       showAisles: true,
       highlightAccessible: true,
