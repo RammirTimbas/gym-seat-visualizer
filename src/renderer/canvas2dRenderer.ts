@@ -674,6 +674,7 @@ export class Canvas2DRenderer {
     }
     // Draw computed comfort rooms once (they were computed earlier)
     if (this.comfortRooms.length > 0) {
+      // First pass: Draw all boxes
       for (const cr of this.comfortRooms) {
         const cx1 = cr.minX * this.renderContext.scale + this.renderContext.offsetX
         const cy1 = cr.minY * this.renderContext.scale + this.renderContext.offsetY
@@ -692,15 +693,46 @@ export class Canvas2DRenderer {
         this.ctx.strokeStyle = crBorder
         this.ctx.lineWidth = 2
         this.ctx.strokeRect(cx1, cy1, cw, ch)
+        this.ctx.restore()
+      }
 
-        if (this.renderOptions.showLabels) {
+      // Second pass: Draw labels on top of all boxes
+      if (this.renderOptions.showLabels) {
+        for (const cr of this.comfortRooms) {
+          if (!cr.label) continue
+
+          const cx1 = cr.minX * this.renderContext.scale + this.renderContext.offsetX
+          const cy1 = cr.minY * this.renderContext.scale + this.renderContext.offsetY
+          const cx2 = cr.maxX * this.renderContext.scale + this.renderContext.offsetX
+          const cy2 = cr.maxY * this.renderContext.scale + this.renderContext.offsetY
+          const cw = cx2 - cx1
+          const ch = cy2 - cy1
+
+          this.ctx.save()
+          const crFill = (theme.zone as any).medical
           this.ctx.fillStyle = theme.text
           this.ctx.font = 'bold 12px sans-serif'
           this.ctx.textAlign = 'center'
           this.ctx.textBaseline = 'middle'
-          this.ctx.fillText(cr.label, cx1 + cw / 2, cy1 + ch / 2)
+
+          let textX = cx1 + cw / 2
+          if (cr.label === 'Female CR' || cr.label === 'Male CR') {
+            // Center the label across the combined width of the CR and PWD zones.
+            // Since they are split exactly in half, the midpoint is at the boundary (cx1 + cw).
+            textX = cx1 + cw
+
+            // Clear a small area behind the centered text so the separator line doesn't cut through it
+            const textWidth = this.ctx.measureText(cr.label).width
+            this.ctx.save()
+            this.ctx.fillStyle = crFill
+            this.ctx.globalAlpha = 1
+            this.ctx.fillRect(textX - textWidth / 2 - 2, cy1 + ch / 2 - 8, textWidth + 4, 16)
+            this.ctx.restore()
+          }
+
+          this.ctx.fillText(cr.label, textX, cy1 + ch / 2)
+          this.ctx.restore()
         }
-        this.ctx.restore()
       }
     }
   }
@@ -777,8 +809,8 @@ export class Canvas2DRenderer {
         const topMaxY = Math.min(ez.bounds.minY + padding + crH, ez.bounds.maxY - padding)
 
         this.comfortRooms.push(
-          { minX: crMinX, minY: topMinY, maxX: midX, maxY: topMaxY, label: 'CR' },
-          { minX: midX, minY: topMinY, maxX: crMaxX, maxY: topMaxY, label: 'PWD' }
+          { minX: crMinX, minY: topMinY, maxX: midX, maxY: topMaxY, label: 'Female CR' },
+          { minX: midX, minY: topMinY, maxX: crMaxX, maxY: topMaxY, label: '' }
         )
 
         // Bottom section split into CR and PWD
@@ -786,8 +818,8 @@ export class Canvas2DRenderer {
         const bottomMinY = Math.max(ez.bounds.maxY - padding - crH, ez.bounds.minY + padding)
 
         this.comfortRooms.push(
-          { minX: crMinX, minY: bottomMinY, maxX: midX, maxY: bottomMaxY, label: 'CR' },
-          { minX: midX, minY: bottomMinY, maxX: crMaxX, maxY: bottomMaxY, label: 'PWD' }
+          { minX: crMinX, minY: bottomMinY, maxX: midX, maxY: bottomMaxY, label: 'Male CR' },
+          { minX: midX, minY: bottomMinY, maxX: crMaxX, maxY: bottomMaxY, label: '' }
         )
       }
 
