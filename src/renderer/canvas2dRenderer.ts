@@ -77,6 +77,7 @@ export class Canvas2DRenderer {
     this.renderOptions = {
       showGrid: true,
       showLabels: true,
+      showSeatNumbers: true,
       showZones: true,
       showAisles: true,
       highlightAccessible: true,
@@ -976,7 +977,7 @@ export class Canvas2DRenderer {
 
       // Draw seat number. During export force the smallest readable font so
       // numbers are present on the exported image even when markers end up small.
-      if (this.renderOptions.showLabels && seat.metadata.seatNumber) {
+      if (this.renderOptions.showSeatNumbers && seat.metadata.seatNumber) {
         this.ctx.fillStyle = 'white'
         if (this.isExporting) {
           this.ctx.font = '6px sans-serif'
@@ -1031,10 +1032,11 @@ export class Canvas2DRenderer {
       // Do not draw bleacher seats that fall inside emergency exit zones or clearance corridors
       if (this.isSeatInClearance(seat)) continue
 
-      // Determine color based on bleacher type
-      let color = seat.metadata.occupied ? '#10b981' : (theme.seatBleacher1 || '#f97316')
+      // Determine color based on bleacher type.
+      // Bleacher colors are independent of occupancy (bleachers have their own meaning/colors).
+      let color = theme.seatBleacher1 || '#f97316'
       if (seat.metadata.bleacherType === 2) {
-        color = seat.metadata.occupied ? '#10b981' : (theme.seatBleacher2 || '#8b5cf6')
+        color = theme.seatBleacher2 || '#8b5cf6'
       }
 
       const x = seat.position.x * scale + this.renderContext.offsetX
@@ -1050,7 +1052,7 @@ export class Canvas2DRenderer {
       this.ctx.lineWidth = 1.5
       this.ctx.strokeRect(markerX, markerY, markerWidth, markerHeight)
 
-      if (this.renderOptions.showLabels && seat.metadata.seatNumber) {
+      if (this.renderOptions.showSeatNumbers && seat.metadata.seatNumber) {
         this.ctx.fillStyle = 'white'
         if (this.isExporting) {
           this.ctx.font = '6px sans-serif'
@@ -1842,6 +1844,7 @@ export class Canvas2DRenderer {
     this.renderOptions = {
       ...this.renderOptions,
       showLabels: true,
+      showSeatNumbers: true,
       showZones: true,
       showLegend: true,
       showMeasurements: true,

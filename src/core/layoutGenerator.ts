@@ -29,9 +29,30 @@ export class LayoutGenerator {
   private occH: number = 0
   private occScale: number = 100 // cells per meter (default 1cm)
 
+  // When targetPeople is set for ordinary floor seats, keep the layout globally balanced
+  // across left/right halves of the gym (relative to centerX).
+  private floorQuotaActive: boolean = false
+  private floorLeftTarget: number = 0
+  private floorRightTarget: number = 0
+  private floorLeftPlaced: number = 0
+  private floorRightPlaced: number = 0
+
   constructor(config: GymConfig) {
     this.config = config
     this.validateConfig()
+  }
+
+  private getStageZone(): Zone | undefined {
+    return this.config.zones?.find(z => z.type === ZoneType.STAGE || (z.type as any) === 'stage')
+  }
+
+  private recenterStageZone(): void {
+    const stage = this.getStageZone()
+    if (!stage) return
+    const stageW = stage.bounds.maxX - stage.bounds.minX
+    const centerX = this.config.width / 2
+    stage.bounds.minX = centerX - stageW / 2
+    stage.bounds.maxX = centerX + stageW / 2
   }
 
   /**
@@ -104,6 +125,14 @@ export class LayoutGenerator {
   }
 
   generate(): LayoutOutput {
+    // If targetPeople is set, ensure we can actually fit at least that many non-VIP seats.
+    // We expand gym width/length (keeping aspect ratio) until we can hit the target, or until
+    // we hit a conservative iteration limit.
+    const target = (this.config as any).targetPeople
+    if (Number.isFinite(target) && target > 0) {
+      this.autoScaleToFitTargetPeople(target)
+    }
+
     this.seats = []
     this.tooDense = false
 
@@ -123,11 +152,17 @@ export class LayoutGenerator {
     // Reserve STAGE first (bleachers must respect the stage)
     this.reserveZoneList(this.config.zones.filter(z => z.type === ZoneType.STAGE))
 
-    // Place bleachers and seats (fill all available space)
-    let peopleRemaining = Number.POSITIVE_INFINITY
+    // Place bleachers first (they are not controlled by targetPeople; targetPeople only
+    // caps ordinary floor seats / "graduates").
+    const targetPeople =
+      Number.isFinite((this.config as any).targetPeople) && (this.config as any).targetPeople > 0
+        ? (this.config as any).targetPeople
+        : null
+
+    let floorPeopleRemaining = targetPeople ?? Number.POSITIVE_INFINITY
 
     if (this.config.bleachers?.enabled) {
-      this.placeBleachers(peopleRemaining)
+      this.placeBleachers(Number.POSITIVE_INFINITY)
     }
 
     // After bleachers are placed, reserve OTHER non-aisle zones (photobooth, medical, etc.)
@@ -147,13 +182,13 @@ export class LayoutGenerator {
     switch (this.config.shape) {
       case GymnasiumShape.RECTANGLE:
       case GymnasiumShape.SQUARE:
-        this.placeSeatsRectangularSmart(peopleRemaining)
+        this.placeSeatsRectangularSmart(floorPeopleRemaining)
         break
       case GymnasiumShape.OVAL:
-        this.placeSeatsOvalSmart(peopleRemaining)
+        this.placeSeatsOvalSmart(floorPeopleRemaining)
         break
       case GymnasiumShape.CIRCLE:
-        this.placeSeatsCircularSmart(peopleRemaining)
+        this.placeSeatsCircularSmart(floorPeopleRemaining)
         break
     }
 
@@ -1116,6 +1151,20 @@ export class LayoutGenerator {
     let rowNumber = 0
     let placed = 0
 
+    // If we have a finite target for floor seats, enforce a global left/right split.
+    this.floorQuotaActive = Number.isFinite(peopleToAllocate) && peopleToAllocate > 0
+    if (this.floorQuotaActive) {
+      const left = Math.floor(peopleToAllocate / 2)
+      const right = peopleToAllocate - left
+      this.floorLeftTarget = left
+      this.floorRightTarget = right
+      this.floorLeftPlaced = 0
+      this.floorRightPlaced = 0
+    } else {
+      this.floorLeftTarget = this.floorRightTarget = 0
+      this.floorLeftPlaced = this.floorRightPlaced = 0
+    }
+
     // Optional horizontal (cross) aisle: skip placing rows through this Y band.
     const horizontalAisle = this.config.aisles.horizontal ?? 0
     let horizontalAisleMinY = Number.POSITIVE_INFINITY
@@ -1231,24 +1280,54 @@ export class LayoutGenerator {
       seatsPerBlock[0] = seatsPerBlock[1] = min
     }
 
-    blocks.forEach((block, blockIndex) => {
+    const blockStarts = blocks.map((block, blockIndex) => {
       const count = seatsPerBlock[blockIndex]
       const sectionRowWidth = count * seatType.width + (count - 1) * this.config.horizontalSpacing
       // Center the block's seats within its available gap
       const rowStartX = block.minX + (block.maxX - block.minX - sectionRowWidth) / 2
+      return { rowStartX, count }
+    })
 
-      for (let i = 0; i < count; i++) {
+    // Interleave block placement so capped rows remain visually balanced.
+    // 4 blocks => [far-left, far-right, mid-left, mid-right]
+    // 3 blocks => [left, right, center]
+    // 2 blocks => [left, right]
+    const blockOrder = (() => {
+      if (blocks.length === 4) return [0, 3, 1, 2]
+      if (blocks.length === 3) return [0, 2, 1]
+      if (blocks.length === 2) return [0, 1]
+      return [0]
+    })()
+
+    const maxSeatsInBlock = Math.max(0, ...blockStarts.map(b => b.count))
+    for (let i = 0; i < maxSeatsInBlock; i++) {
+      for (const blockIndex of blockOrder) {
         if (peopleToAllocate > 0 && placedInRow >= peopleToAllocate) break
-        const seatX = rowStartX + i * (seatType.width + this.config.horizontalSpacing) + seatType.width / 2
+        const info = blockStarts[blockIndex]
+        if (!info || i >= info.count) continue
+        const seatX = info.rowStartX + i * (seatType.width + this.config.horizontalSpacing) + seatType.width / 2
+
+        if (this.floorQuotaActive) {
+          if (seatX < centerX) {
+            if (this.floorLeftPlaced >= this.floorLeftTarget) continue
+          } else {
+            if (this.floorRightPlaced >= this.floorRightTarget) continue
+          }
+        }
         if (!this.isPositionBlocked(seatX, baseY, seatType)) {
           const seat = this.createSeat(seatX, baseY, rowNumber, positionInRow, seatType)
           this.seats.push(seat)
           this.markAreaAsUsed(seatX, baseY, seatType.width, seatType.depth)
           placedInRow++
           positionInRow++
+          if (this.floorQuotaActive) {
+            if (seatX < centerX) this.floorLeftPlaced++
+            else this.floorRightPlaced++
+          }
         }
       }
-    })
+      if (peopleToAllocate > 0 && placedInRow >= peopleToAllocate) break
+    }
 
     return placedInRow
   }
@@ -1469,6 +1548,70 @@ export class LayoutGenerator {
         this.occGrid[row + gx] = 1
       }
     }
+
+    this.floorQuotaActive = false
+  }
+
+  private countFloorOrdinarySeats(seats: Seat[]): number {
+    return seats.filter(s => !s.metadata?.vip && !s.metadata?.bleacher).length
+  }
+
+  private autoScaleToFitTargetPeople(targetPeople: number): void {
+    const maxScale = 8 // avoid runaway accidental scaling
+
+    const baseW = this.config.width
+    const baseL = this.config.length
+
+    const tryGenerate = (): number => {
+      // NOTE: this mutates config.zones via generator internals; we operate on a shallow-cloned
+      // config for the probe to avoid polluting the real run.
+      const probeCfg: GymConfig = JSON.parse(JSON.stringify(this.config))
+      // Prevent recursion: probe should not attempt autoscale.
+      ;(probeCfg as any).targetPeople = undefined
+      const probe = new LayoutGenerator(probeCfg)
+      const out = probe.generate()
+      return this.countFloorOrdinarySeats(out.seats)
+    }
+
+    // If the current size already fits, keep it (we don't auto-shrink user-provided gyms).
+    const baseCount = tryGenerate()
+    if (baseCount >= targetPeople) return
+
+    // Find an upper bound that fits (monotonic-ish w.r.t scale).
+    let low = 1
+    let high = 1
+    let highCount = baseCount
+    while (highCount < targetPeople && high < maxScale) {
+      low = high
+      high = Math.min(maxScale, high * 1.25)
+      this.config.width = baseW * high
+      this.config.length = baseL * high
+      this.recenterStageZone()
+      highCount = tryGenerate()
+    }
+
+    if (highCount < targetPeople) {
+      // Can't reach target within maxScale; keep last attempted size.
+      return
+    }
+
+    // Binary search for the smallest scale that still fits the target to keep the gym "full".
+    for (let i = 0; i < 10; i++) {
+      const mid = (low + high) / 2
+      this.config.width = baseW * mid
+      this.config.length = baseL * mid
+      this.recenterStageZone()
+      const c = tryGenerate()
+      if (c >= targetPeople) {
+        high = mid
+      } else {
+        low = mid
+      }
+    }
+
+    this.config.width = baseW * high
+    this.config.length = baseL * high
+    this.recenterStageZone()
   }
 
   /**

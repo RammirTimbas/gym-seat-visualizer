@@ -232,6 +232,7 @@ export interface RenderContext {
 export interface RenderOptions {
   showGrid?: boolean
   showLabels?: boolean
+  showSeatNumbers?: boolean
   showZones?: boolean
   showAisles?: boolean
   highlightAccessible?: boolean

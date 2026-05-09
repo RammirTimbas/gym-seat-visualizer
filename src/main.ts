@@ -368,6 +368,9 @@ function setupDOM(): void {
                 <input type="checkbox" id="show-labels" checked /> Show Labels
               </label>
               <label>
+                <input type="checkbox" id="show-seat-numbers" checked /> Show Seat Numbers
+              </label>
+              <label>
                 <input type="checkbox" id="show-zones" checked /> Show Zones
               </label>
               <label>
@@ -535,6 +538,12 @@ function setupEventListeners(): void {
     }
   })
 
+  document.getElementById('show-seat-numbers')?.addEventListener('change', (e) => {
+    if (state.renderer) {
+      state.renderer.setRenderOptions({ showSeatNumbers: (e.target as HTMLInputElement).checked })
+    }
+  })
+
   document.getElementById('show-zones')?.addEventListener('change', (e) => {
     if (state.renderer) {
       state.renderer.setRenderOptions({ showZones: (e.target as HTMLInputElement).checked })
@@ -658,7 +667,10 @@ function loadLayout(config: GymConfig): void {
       layoutWarning = layout.warning
     }
 
-    // Target people occupancy fills as many seats as requested (or all available if > available)
+    // Target people occupancy fills ordinary floor seats (graduates). When targetPeople is set,
+    // we treat the generated layout as "packed" for visualization purposes: all generated
+    // ordinary seats are occupied up to the requested count, and bleacher seats are also
+    // marked occupied so utilization reflects a full plan.
     if (layout) {
       const targetPeopleInput = document.getElementById('target-people') as HTMLInputElement
       let targetPeopleVal = targetPeopleInput ? parseInt(targetPeopleInput.value, 10) : NaN
@@ -666,9 +678,13 @@ function loadLayout(config: GymConfig): void {
       // Separate Faculty and Ordinary seats
       const facultySeats = layout.seats.filter((s: any) => s.metadata.vip)
       const ordinarySeats = layout.seats.filter((s: any) => !s.metadata.vip && !s.metadata.bleacher)
+      const bleacherSeats = layout.seats.filter((s: any) => !!s.metadata.bleacher)
 
       // Faculty are always occupied if they exist
       facultySeats.forEach((s: any) => { s.metadata.occupied = true })
+
+      // Bleacher seats are also treated as occupied for utilization/visualization.
+      bleacherSeats.forEach((s: any) => { s.metadata.occupied = true })
 
       // Handle Ordinary Seats occupancy based on targetPeople
       if (isNaN(targetPeopleVal) || targetPeopleVal <= 0) {
@@ -676,10 +692,6 @@ function loadLayout(config: GymConfig): void {
       }
 
       const n = Math.min(ordinarySeats.length, targetPeopleVal)
-      const centerX = layout.config.width / 2
-
-      let leftOrdinary = ordinarySeats.filter((s: any) => s.position.x < centerX)
-      let rightOrdinary = ordinarySeats.filter((s: any) => s.position.x >= centerX)
 
       // Sort seats deterministically: front-to-back (y ascending), then left-to-right (x ascending).
       // This ensures occupancy assignment is stable across layout regenerations.
@@ -687,26 +699,29 @@ function loadLayout(config: GymConfig): void {
         if (Math.abs(a.position.y - b.position.y) > 1e-6) return a.position.y - b.position.y
         return a.position.x - b.position.x
       }
-      leftOrdinary = leftOrdinary.slice().sort(seatSorter)
-      rightOrdinary = rightOrdinary.slice().sort(seatSorter)
-      
-      const half = Math.floor(n / 2)
-      const remainder = n % 2
-      const leftTarget = half
-      const rightTarget = half + remainder
+      const sortedOrdinary = ordinarySeats.slice().sort(seatSorter)
 
       // Reset ordinary occupancy first
       ordinarySeats.forEach((s: any) => { s.metadata.occupied = false })
-      
-      leftOrdinary.forEach((s: any, i: number) => {
-        s.metadata.occupied = i < leftTarget
-      })
-      rightOrdinary.forEach((s: any, i: number) => {
-        s.metadata.occupied = i < rightTarget
-      })
+
+      // Fill globally so we occupy exactly `n` seats without side-based quota artifacts.
+      for (let i = 0; i < sortedOrdinary.length; i++) {
+        sortedOrdinary[i].metadata.occupied = i < n
+      }
+
+      // Renumber ordinary floor seats so numbering is continuous per side of the red carpet
+      // (left and right halves), independent of generation order.
+      if (!isNaN(targetPeopleVal) && targetPeopleVal > 0) {
+        const startNumber = Number.isFinite(layout.config?.startNumber) ? layout.config.startNumber : 1
+        const centerX = layout.config.width / 2
+        const left = ordinarySeats.filter((s: any) => s.position.x < centerX).slice().sort(seatSorter)
+        const right = ordinarySeats.filter((s: any) => s.position.x >= centerX).slice().sort(seatSorter)
+        left.forEach((s: any, idx: number) => { s.metadata.seatNumber = String(startNumber + idx) })
+        right.forEach((s: any, idx: number) => { s.metadata.seatNumber = String(startNumber + left.length + idx) })
+      }
 
       // Update total stats
-      const totalOccupied = facultySeats.length + n
+      const totalOccupied = facultySeats.length + bleacherSeats.length + n
       layout.stats.seatsByOccupancy.occupied = totalOccupied
       layout.stats.seatsByOccupancy.empty = layout.seats.length - totalOccupied
       layout.occupiedSeats = totalOccupied
