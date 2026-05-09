@@ -894,36 +894,32 @@ export class Canvas2DRenderer {
    * Draw gym dimensions with label and measurements
    */
   private drawGymDimensions(): void {
-    if (!this.layout || !this.layout.config) return
+    if (!this.layout || !this.layout.config || !this.renderOptions.showMeasurements) return
     
     const config = this.layout.config
     const theme = this.colors[this.renderOptions.theme || 'light']
     
     // Use full gym dimensions, not usable area
-    const minX = 0
-    const minY = 0
+    const x1 = this.renderContext.offsetX
+    const y1 = this.renderContext.offsetY
     
-    const x1 = minX * this.renderContext.scale + this.renderContext.offsetX
-    const y1 = minY * this.renderContext.scale + this.renderContext.offsetY
+    this.ctx.save()
     
-    if (this.renderOptions.showMeasurements) {
-      this.ctx.save()
-      
-      // Gym label and dimensions at top-left corner
-      const fontSize = 12
-      this.ctx.font = `bold ${fontSize}px sans-serif`
-      this.ctx.fillStyle = theme.text
-      this.ctx.globalAlpha = 0.7
-      this.ctx.textAlign = 'left'
-      this.ctx.textBaseline = 'top'
-      
-      // // Gym dimensions below label (full gym, not usable area)
-      // const dimText = `${config.width.toFixed(2)}m x ${config.length.toFixed(2)}m`
-      // this.ctx.font = 'bold 10px monospace'
-      // this.ctx.fillText(dimText, x1 + 8, y1 + 22)
-      
-      this.ctx.restore()
-    }
+    // Gym label and dimensions at top-left corner
+    // const fontSize = 12
+    // this.ctx.font = `bold ${fontSize}px sans-serif`
+    // this.ctx.fillStyle = theme.text
+    // this.ctx.globalAlpha = 0.7
+    // this.ctx.textAlign = 'left'
+    // this.ctx.textBaseline = 'top'
+    // this.ctx.fillText('Gym', x1 + 8, y1 + 8)
+    
+    // // Gym dimensions below label (full gym, not usable area)
+    // const dimText = `${config.width.toFixed(2)}m x ${config.length.toFixed(2)}m`
+    // this.ctx.font = 'bold 10px monospace'
+    // this.ctx.fillText(dimText, x1 + 8, y1 + 22)
+    
+    this.ctx.restore()
   }
 
   /**
