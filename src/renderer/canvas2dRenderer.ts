@@ -928,12 +928,12 @@ export class Canvas2DRenderer {
   private drawGymDimensions(): void {
     if (!this.layout || !this.layout.config || !this.renderOptions.showMeasurements) return
     
-    const config = this.layout.config
-    const theme = this.colors[this.renderOptions.theme || 'light']
+    // const config = this.layout.config
+    // const theme = this.colors[this.renderOptions.theme || 'light']
     
-    // Use full gym dimensions, not usable area
-    const x1 = this.renderContext.offsetX
-    const y1 = this.renderContext.offsetY
+    // // Use full gym dimensions, not usable area
+    // const x1 = this.renderContext.offsetX
+    // const y1 = this.renderContext.offsetY
     
     this.ctx.save()
     
