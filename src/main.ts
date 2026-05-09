@@ -442,8 +442,10 @@ function setupEventListeners(): void {
     const val = parseFloat((e.target as HTMLInputElement).value)
     if (Number.isFinite(val) && val > 0) {
       state.renderer.setRenderOptions({ comfortRoomWidthMeters: val })
+      if (state.latestLayout?.config) state.latestLayout.config.comfortRoomWidthMeters = val
     } else {
       state.renderer.setRenderOptions({ comfortRoomWidthMeters: undefined })
+      if (state.latestLayout?.config) state.latestLayout.config.comfortRoomWidthMeters = undefined
     }
     // Re-render if there's an active layout
     if (state.latestLayout) {
@@ -456,8 +458,10 @@ function setupEventListeners(): void {
     const val = parseFloat((e.target as HTMLInputElement).value)
     if (Number.isFinite(val) && val > 0) {
       state.renderer.setRenderOptions({ comfortRoomHeightMeters: val })
+      if (state.latestLayout?.config) state.latestLayout.config.comfortRoomHeightMeters = val
     } else {
       state.renderer.setRenderOptions({ comfortRoomHeightMeters: undefined })
+      if (state.latestLayout?.config) state.latestLayout.config.comfortRoomHeightMeters = undefined
     }
     if (state.latestLayout) {
       state.renderer?.loadLayout(state.latestLayout)
@@ -876,6 +880,8 @@ function setInputsFromConfig(config: any): void {
   ;(document.getElementById('emergency-exit-height') as HTMLInputElement).value = config.emergencyExitHeight ?? ''
   ;(document.getElementById('stage-emergency-exit-height') as HTMLInputElement).value = config.stageEmergencyExitHeight ?? ''
   ;(document.getElementById('stage-emergency-exit-width') as HTMLInputElement).value = config.stageEmergencyExitWidth ?? ''
+  ;(document.getElementById('comfort-room-width') as HTMLInputElement).value = config.comfortRoomWidthMeters ?? ''
+  ;(document.getElementById('comfort-room-height') as HTMLInputElement).value = config.comfortRoomHeightMeters ?? ''
 
   const leftTable = config.zones?.find((z: any) => z.id === 'table-left')
   if (leftTable) {
@@ -1013,6 +1019,8 @@ function updateConfigFromInputs(): void {
   const emergencyExitHeight = parseFloat((document.getElementById('emergency-exit-height') as HTMLInputElement).value)
   const stageEmergencyExitHeight = parseFloat((document.getElementById('stage-emergency-exit-height') as HTMLInputElement).value)
   const stageEmergencyExitWidth = parseFloat((document.getElementById('stage-emergency-exit-width') as HTMLInputElement).value)
+  const comfortRoomWidthMeters = parseFloat((document.getElementById('comfort-room-width') as HTMLInputElement).value)
+  const comfortRoomHeightMeters = parseFloat((document.getElementById('comfort-room-height') as HTMLInputElement).value)
 
   const tableWidth = parseFloat((document.getElementById('table-width') as HTMLInputElement).value)
   const tableDepth = parseFloat((document.getElementById('table-depth') as HTMLInputElement).value)
@@ -1105,6 +1113,8 @@ function updateConfigFromInputs(): void {
   config.emergencyExitHeight = Number.isNaN(emergencyExitHeight) ? undefined : emergencyExitHeight
   config.stageEmergencyExitHeight = Number.isNaN(stageEmergencyExitHeight) ? undefined : stageEmergencyExitHeight
   config.stageEmergencyExitWidth = Number.isNaN(stageEmergencyExitWidth) ? undefined : stageEmergencyExitWidth
+  config.comfortRoomWidthMeters = Number.isNaN(comfortRoomWidthMeters) ? undefined : comfortRoomWidthMeters
+  config.comfortRoomHeightMeters = Number.isNaN(comfortRoomHeightMeters) ? undefined : comfortRoomHeightMeters
 
   // Calculate estimated faculty width to push other elements
   const facultyCount = config.facultyCount || 0
@@ -1350,6 +1360,12 @@ function importJSONFile(file: File): void {
         
         // Update config inputs from the imported layout
         setInputsFromConfig(layout.config)
+
+        // Restore comfort room sizing render options from config (export/import roundtrip)
+        state.renderer.setRenderOptions({
+          comfortRoomWidthMeters: layout.config.comfortRoomWidthMeters,
+          comfortRoomHeightMeters: layout.config.comfortRoomHeightMeters
+        })
         
         // Update statistics
         updateStats(layout)

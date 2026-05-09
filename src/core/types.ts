@@ -168,6 +168,11 @@ export interface GymConfig {
   // Configuration for stage-side emergency exits
   stageEmergencyExitHeight?: number
   stageEmergencyExitWidth?: number
+
+  // Comfort room sizing inside emergency exit gaps (renderer + seat clearance).
+  // Stored on config so import/export roundtrips preserve the user's settings.
+  comfortRoomWidthMeters?: number
+  comfortRoomHeightMeters?: number
 }
 
 // ============================================================================
