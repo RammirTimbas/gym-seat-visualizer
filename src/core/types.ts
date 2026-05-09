@@ -158,6 +158,7 @@ export interface GymConfig {
   fixedRows?: number // Optional: specify exact number of rows
   fixedSeatsPerRow?: number // Optional: specify exact number of seats per row
   facultyCount?: number // Number of faculty seats to place at the sides
+  startNumber?: number // The number to start seat numbering from (default 1)
 
   // Optimization
   maxRows?: number

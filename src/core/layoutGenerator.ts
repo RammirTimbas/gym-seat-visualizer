@@ -18,10 +18,16 @@ import { pointInOval, pointInPolygon } from '../utils/geometry'
 export class LayoutGenerator {
   private config: GymConfig
   private seats: Seat[] = []
-  private usedArea: Set<string> = new Set()
   private tooDense: boolean = false
   private leftCounter: number = 0
   private rightCounter: number = 0
+
+  // Occupancy grid used to prevent overlaps. We adapt resolution for large gyms to
+  // keep memory bounded (a 1cm grid on large dimensions is too large for JS Sets).
+  private occGrid: Uint8Array = new Uint8Array(0)
+  private occW: number = 0
+  private occH: number = 0
+  private occScale: number = 100 // cells per meter (default 1cm)
 
   constructor(config: GymConfig) {
     this.config = config
@@ -99,9 +105,14 @@ export class LayoutGenerator {
 
   generate(): LayoutOutput {
     this.seats = []
-    this.usedArea.clear()
-    this.leftCounter = 0
-    this.rightCounter = 0
+    this.tooDense = false
+
+    this.initOccupancyGrid()
+
+    // Starting number for seat numbering
+    const startNum = (this.config.startNumber || 1) - 1
+    this.leftCounter = startNum
+    this.rightCounter = startNum
 
     // Adjust bottom zones to sit on top of bleachers
     this.shiftBottomZones()
@@ -129,7 +140,8 @@ export class LayoutGenerator {
     
     this.reserveZoneList(this.config.zones.filter(z => z.type === ZoneType.AISLE))
 
-    // Place faculty seats
+    // Place faculty seats (PWD seats)
+    // NOTE: Faculty seats must call isPositionBlocked to respect emergency exits
     this.placeFacultySeats()
 
     switch (this.config.shape) {
@@ -680,16 +692,7 @@ export class LayoutGenerator {
   private reserveZoneList(zones: Zone[]): void {
     for (const zone of zones) {
       // Mark zone area as occupied in the grid
-      const startY = Math.floor(zone.bounds.minY * 100) // Convert to grid units (1cm)
-      const startX = Math.floor(zone.bounds.minX * 100)
-      const endY = Math.ceil(zone.bounds.maxY * 100)
-      const endX = Math.ceil(zone.bounds.maxX * 100)
-
-      for (let y = startY; y < endY; y++) {
-        for (let x = startX; x < endX; x++) {
-          this.usedArea.add(`${x},${y}`)
-        }
-      }
+      this.occupyRect(zone.bounds.minX, zone.bounds.minY, zone.bounds.maxX, zone.bounds.maxY)
     }
   }
 
@@ -713,6 +716,14 @@ export class LayoutGenerator {
 
     const seatType = this.config.seatTypes[0]
     if (!seatType) return 0
+
+    // Avoid accumulating auto-generated emergency/entrance zones across multiple runs.
+    // The generator mutates `config.zones`; configs are often reused between generates.
+    this.config.zones = this.config.zones.filter(z => {
+      if (z.type === ZoneType.EMERGENCY) return false
+      if (z.type === ZoneType.AISLE && z.id === 'entrance') return false
+      return true
+    })
 
     const bleacherZones = this.buildBleacherZones()
     if (bleacherZones.length === 0) return 0
@@ -834,12 +845,11 @@ export class LayoutGenerator {
         // For width (depth of cut into bleacher), use stage width if top, otherwise bleacher depth
         const w = position === 'top' ? (this.config.stageEmergencyExitWidth ?? bleacherDepth) : (sideBounds.maxX - sideBounds.minX)
 
-        const centerX = (sideBounds.minX + sideBounds.maxX) / 2
-        // If it's a left side exit
-        let minX, maxX;
-        if (sideBounds.minX < this.config.width / 2) {
-           minX = sideBounds.minX - 0.05
-           maxX = sideBounds.minX + w + 0.05
+      // If it's a left side exit
+      let minX, maxX;
+      if (sideBounds.minX < this.config.width / 2) {
+         minX = sideBounds.minX - 0.05
+         maxX = sideBounds.minX + w + 0.05
         } else {
            maxX = sideBounds.maxX + 0.05
            minX = sideBounds.maxX - w - 0.05
@@ -1101,8 +1111,6 @@ export class LayoutGenerator {
     if (!seatType) return
 
     const floorBounds = this.getUsableFloorBounds()
-    const startX = floorBounds.minX
-    const usableWidth = floorBounds.maxX - floorBounds.minX
     const seatingStartY = floorBounds.minY
     const maxY = floorBounds.maxY
     let rowNumber = 0
@@ -1144,7 +1152,7 @@ export class LayoutGenerator {
       }
 
       // Orient row to face stage (all rows parallel to stage front)
-      placed += this.placeRowRectangularSmart(rowNumber, currentY, startX, usableWidth, seatType, peopleToAllocate - placed)
+      placed += this.placeRowRectangularSmart(rowNumber, currentY, seatType, peopleToAllocate - placed)
       rowNumber++
       if (peopleToAllocate > 0 && placed >= peopleToAllocate) break
 
@@ -1156,8 +1164,6 @@ export class LayoutGenerator {
   private placeRowRectangularSmart(
     rowNumber: number,
     baseY: number,
-    startX: number,
-    usableWidth: number,
     seatType: typeof this.config.seatTypes[0],
     peopleToAllocate: number
   ): number {
@@ -1352,10 +1358,11 @@ export class LayoutGenerator {
       }
     }
 
-    // Check against used area grid
-    const gridX = Math.floor(x * 100)
-    const gridY = Math.floor(y * 100)
-    return this.usedArea.has(`${gridX},${gridY}`)
+    // Check against used area grid (center-cell occupancy).
+    const gridX = Math.floor(x * this.occScale)
+    const gridY = Math.floor(y * this.occScale)
+    if (gridX < 0 || gridY < 0 || gridX >= this.occW || gridY >= this.occH) return true
+    return this.occGrid[gridY * this.occW + gridX] === 1
   }
 
   private isSeatWithinShape(
@@ -1412,21 +1419,54 @@ export class LayoutGenerator {
     width: number,
     depth: number
   ): void {
-    const startX = Math.floor((x - width / 2) * 100)
-    const startY = Math.floor((y - depth / 2) * 100)
-    const endX = Math.ceil((x + width / 2) * 100)
-    const endY = Math.ceil((y + depth / 2) * 100)
+    this.occupyRect(x - width / 2, y - depth / 2, x + width / 2, y + depth / 2)
+  }
 
-    const nominalTotalCells = Math.ceil(this.config.width * 100) * Math.ceil(this.config.length * 100)
-    const MAX_SET_SIZE = Math.max(1000000, Math.min(20000000, nominalTotalCells * 2))
+  private initOccupancyGrid(): void {
+    // Choose the finest resolution that keeps total cells reasonable.
+    // 58m x 84m at 1cm would be ~48.7M cells which is too big for JS Sets and
+    // generally too memory-heavy for this app. Typed arrays are bounded and fast.
+    const maxCells = 10_000_000
+    const cellSizes = [0.01, 0.02, 0.05, 0.1] // meters per cell
 
-    for (let gridY = startY; gridY < endY; gridY++) {
-      for (let gridX = startX; gridX < endX; gridX++) {
-        if (this.usedArea.size >= MAX_SET_SIZE) {
-          this.tooDense = true
-          return
-        }
-        this.usedArea.add(`${gridX},${gridY}`)
+    for (const cs of cellSizes) {
+      const w = Math.ceil(this.config.width / cs)
+      const h = Math.ceil(this.config.length / cs)
+      const cells = w * h
+      if (cells > maxCells) continue
+      try {
+        this.occGrid = new Uint8Array(cells)
+        this.occW = w
+        this.occH = h
+        this.occScale = 1 / cs
+        return
+      } catch {
+        // If allocation fails, try a coarser grid.
+      }
+    }
+
+    // Last resort: coarsest grid, even if it exceeds maxCells.
+    const cs = cellSizes[cellSizes.length - 1]
+    const w = Math.ceil(this.config.width / cs)
+    const h = Math.ceil(this.config.length / cs)
+    this.occGrid = new Uint8Array(w * h)
+    this.occW = w
+    this.occH = h
+    this.occScale = 1 / cs
+  }
+
+  private occupyRect(minX: number, minY: number, maxX: number, maxY: number): void {
+    if (this.occGrid.length === 0) return
+
+    const startX = Math.max(0, Math.floor(minX * this.occScale))
+    const startY = Math.max(0, Math.floor(minY * this.occScale))
+    const endX = Math.min(this.occW, Math.ceil(maxX * this.occScale))
+    const endY = Math.min(this.occH, Math.ceil(maxY * this.occScale))
+
+    for (let gy = startY; gy < endY; gy++) {
+      const row = gy * this.occW
+      for (let gx = startX; gx < endX; gx++) {
+        this.occGrid[row + gx] = 1
       }
     }
   }
@@ -1503,7 +1543,9 @@ export class LayoutGenerator {
 
       for (let row = 0; row < seatsInThisCol; row++) {
         const y = colMinY + row * verticalPitch + seatType.depth / 2
-        if (this.pointInShape(x, y)) {
+
+        // CHECK POSITION BEFORE PLACING
+        if (this.pointInShape(x, y) && !this.isPositionBlocked(x, y, seatType)) {
           totalPlaced++
           const seat = this.createSeat(x, y, 5000 + row, col, seatType, true)
           seat.metadata.seatNumber = `F-${totalPlaced}`
@@ -1525,7 +1567,9 @@ export class LayoutGenerator {
 
       for (let row = 0; row < seatsInThisCol; row++) {
         const y = colMinY + row * verticalPitch + seatType.depth / 2
-        if (this.pointInShape(x, y)) {
+
+        // CHECK POSITION BEFORE PLACING
+        if (this.pointInShape(x, y) && !this.isPositionBlocked(x, y, seatType)) {
           totalPlaced++
           const seat = this.createSeat(x, y, 6000 + row, col, seatType, true)
           seat.metadata.seatNumber = `F-${totalPlaced}`

@@ -13,6 +13,7 @@ export class Canvas2DRenderer {
   private layoutAlert: LayoutAlert | null = null
   private renderContext: RenderContext
   private renderOptions: RenderOptions
+  private isExporting = false
   // Computed comfort rooms and clearance corridors (in meters) used to remove seats
   private comfortRooms: Array<{ minX: number; minY: number; maxX: number; maxY: number; label: string }> = []
   private clearanceCorridors: Array<{ minX: number; minY: number; maxX: number; maxY: number }> = []
@@ -426,7 +427,6 @@ export class Canvas2DRenderer {
   private drawGrid(): void {
     const theme = this.colors[this.renderOptions.theme || 'light']
     const spacing = 1 // 1 meter
-    const pixelSpacing = spacing * this.renderContext.scale
 
     // Draw grid aligned to world (meter) coordinates so lines line up with seat positions.
     // Compute visible world bounds
@@ -884,7 +884,7 @@ export class Canvas2DRenderer {
     }
     // Clearance corridors
     for (const c of this.clearanceCorridors) {
-      if (x >= c.minX - 1e-6 && x <= c.maxX + 1e-6 && y >= c.minY - 1e-6 && y <= c.maxY + 1e-6) true
+      if (x >= c.minX - 1e-6 && x <= c.maxX + 1e-6 && y >= c.minY - 1e-6 && y <= c.maxY + 1e-6) return true
     }
     return false
   }
@@ -974,10 +974,15 @@ export class Canvas2DRenderer {
       this.ctx.globalAlpha = 1
       this.ctx.strokeRect(x - width / 2, y - height / 2, width, height)
 
-      // Draw seat number unless the seat is too small to keep text legible.
-      if (this.renderOptions.showLabels && width > 14 && height > 10 && seat.metadata.seatNumber) {
+      // Draw seat number. During export force the smallest readable font so
+      // numbers are present on the exported image even when markers end up small.
+      if (this.renderOptions.showLabels && seat.metadata.seatNumber) {
         this.ctx.fillStyle = 'white'
-        this.ctx.font = `bold ${Math.max(8, Math.min(width * 0.45, height * 0.7, 14))}px sans-serif`
+        if (this.isExporting) {
+          this.ctx.font = '6px sans-serif'
+        } else {
+          this.ctx.font = `bold ${Math.max(8, Math.min(width * 0.45, height * 0.7, 14))}px sans-serif`
+        }
         this.ctx.textAlign = 'center'
         this.ctx.textBaseline = 'middle'
         this.ctx.fillText(seat.metadata.seatNumber, x, y)
@@ -1045,9 +1050,13 @@ export class Canvas2DRenderer {
       this.ctx.lineWidth = 1.5
       this.ctx.strokeRect(markerX, markerY, markerWidth, markerHeight)
 
-      if (this.renderOptions.showLabels && markerWidth > 14 && markerHeight > 10 && seat.metadata.seatNumber) {
+      if (this.renderOptions.showLabels && seat.metadata.seatNumber) {
         this.ctx.fillStyle = 'white'
-        this.ctx.font = `bold ${Math.max(8, Math.min(markerWidth * 0.38, markerHeight * 0.7, 12))}px sans-serif`
+        if (this.isExporting) {
+          this.ctx.font = '6px sans-serif'
+        } else {
+          this.ctx.font = `bold ${Math.max(8, Math.min(markerWidth * 0.38, markerHeight * 0.7, 12))}px sans-serif`
+        }
         this.ctx.textAlign = 'center'
         this.ctx.textBaseline = 'middle'
         this.ctx.fillText(seat.metadata.seatNumber, markerX + markerWidth / 2, markerY + markerHeight / 2)
@@ -1815,13 +1824,21 @@ export class Canvas2DRenderer {
   exportPNG(exportWidth = 1800, exportHeight = 1200): string {
     const previousOptions = { ...this.renderOptions }
     const previousContext = { ...this.renderContext }
-    const previousCanvasWidth = this.canvas.width
-    const previousCanvasHeight = this.canvas.height
+    const previousCanvas = this.canvas
+    const previousCtx = this.ctx
 
-    this.canvas.width = exportWidth
-    this.canvas.height = exportHeight
-    this.renderContext.width = exportWidth
-    this.renderContext.height = exportHeight
+    // Create an offscreen canvas to avoid mutating the visible canvas state
+    const offscreen = document.createElement('canvas')
+    offscreen.width = exportWidth
+    offscreen.height = exportHeight
+
+    // Swap in offscreen canvas/context for rendering
+    this.canvas = offscreen
+    const offCtx = offscreen.getContext('2d')
+    if (!offCtx) throw new Error('Could not get offscreen 2D context')
+    this.ctx = offCtx
+
+    // Use export-friendly options and force labels on so numbers appear
     this.renderOptions = {
       ...this.renderOptions,
       showLabels: true,
@@ -1831,16 +1848,29 @@ export class Canvas2DRenderer {
       showWarnings: true
     }
 
+    this.renderContext = { ...this.renderContext, width: exportWidth, height: exportHeight }
+
+    // Mark exporting mode so we use the smallest font for labels/numbers
+    this.isExporting = true
+
     if (this.layout) {
       this.fitLayoutInView(true)
     }
-    this.render()
-    const dataUrl = this.canvas.toDataURL('image/png')
 
-    this.canvas.width = previousCanvasWidth
-    this.canvas.height = previousCanvasHeight
+    // Ensure composite and alpha are reset for offscreen context
+    this.ctx.globalCompositeOperation = 'source-over'
+    this.ctx.globalAlpha = 1
+
+    this.render()
+    const dataUrl = offscreen.toDataURL('image/png')
+
+    // Restore previous renderer state
+    this.isExporting = false
+    this.canvas = previousCanvas
+    this.ctx = previousCtx
     this.renderContext = previousContext
     this.renderOptions = previousOptions
+
     if (this.layout) {
       this.render()
     }
