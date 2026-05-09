@@ -916,12 +916,11 @@ export class Canvas2DRenderer {
       this.ctx.globalAlpha = 0.7
       this.ctx.textAlign = 'left'
       this.ctx.textBaseline = 'top'
-      this.ctx.fillText('Gym', x1 + 8, y1 + 8)
       
-      // Gym dimensions below label (full gym, not usable area)
-      const dimText = `${config.width.toFixed(2)}m x ${config.length.toFixed(2)}m`
-      this.ctx.font = 'bold 10px monospace'
-      this.ctx.fillText(dimText, x1 + 8, y1 + 22)
+      // // Gym dimensions below label (full gym, not usable area)
+      // const dimText = `${config.width.toFixed(2)}m x ${config.length.toFixed(2)}m`
+      // this.ctx.font = 'bold 10px monospace'
+      // this.ctx.fillText(dimText, x1 + 8, y1 + 22)
       
       this.ctx.restore()
     }
