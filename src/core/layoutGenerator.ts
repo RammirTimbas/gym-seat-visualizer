@@ -880,6 +880,19 @@ export class LayoutGenerator {
       buildEmergencyFor(rightBounds, 'emergency-stage-right-no-cr', 'top')
 
       if (emergencyZones.length > 0) this.config.zones.push(...emergencyZones)
+
+      // Add Entrance Zone for visual icon in renderer
+      this.config.zones.push({
+        id: 'entrance',
+        type: ZoneType.AISLE,
+        label: 'Entrance',
+        bounds: {
+          minX: entranceStart,
+          maxX: entranceEnd,
+          minY: this.config.length - 0.5,
+          maxY: this.config.length
+        }
+      })
     } catch (err) {
       // Non-fatal; emergency zones are optional
     }
@@ -1060,7 +1073,7 @@ export class LayoutGenerator {
             const seat = this.createSeat(item.x, item.y, rowNumber, positionInRow, bleacherSeatType)
             seat.metadata.seatNumber = `B${step + 1}-${positionInRow + 1}`
             seat.metadata.bleacher = true
-            // Group by geographic half: Top (closer to stage) vs Bottom
+            // Geographic split: Top half (closer to stage) vs Bottom half
             seat.metadata.bleacherType = item.y < bleacherMidY ? 1 : 2
             this.seats.push(seat)
             this.markAreaAsUsed(item.x, item.y, bleacherSeatType.width, bleacherSeatType.depth)

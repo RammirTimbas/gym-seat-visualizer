@@ -153,7 +153,7 @@ function setupDOM(): void {
             </div>
 
             <div class="control-group">
-              <label for="faculty-count">Faculty No.:</label>
+              <label for="faculty-count">PWD No.:</label>
               <input id="faculty-count" type="number" min="0" step="1" style="width:100px;" />
             </div>
 

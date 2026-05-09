@@ -247,6 +247,9 @@ export class Canvas2DRenderer {
       this.drawTopZones()
     }
 
+    // Draw exit icons on top of everything
+    this.drawExitIcons()
+
     if (this.layout.seats.length === 0) {
       this.drawEmptyLayoutMessage()
     }
@@ -360,7 +363,8 @@ export class Canvas2DRenderer {
       'aisle-horizontal': 'Horizontal Aisle',
       'aisle-vertical-center-left': 'Vertical Aisle',
       'aisle-vertical-center-right': 'Vertical Aisle',
-      'photobooth': 'Photo Booth'
+      'photobooth': 'Photo Booth',
+      'entrance': 'Entrance'
     }
 
     return labels[zoneId] || fallback || null
@@ -880,7 +884,7 @@ export class Canvas2DRenderer {
     }
     // Clearance corridors
     for (const c of this.clearanceCorridors) {
-      if (x >= c.minX - 1e-6 && x <= c.maxX + 1e-6 && y >= c.minY - 1e-6 && y <= c.maxY + 1e-6) return true
+      if (x >= c.minX - 1e-6 && x <= c.maxX + 1e-6 && y >= c.minY - 1e-6 && y <= c.maxY + 1e-6) true
     }
     return false
   }
@@ -1553,15 +1557,15 @@ export class Canvas2DRenderer {
     
     // 2. Faculty (VIP seats)
     if (this.layout.seats.some(s => s.metadata.vip)) {
-      items.push({ color: theme.seatVip, label: 'Faculty' })
+      items.push({ color: theme.seatVip, label: 'PWD Seat' })
     }
 
     // 2.5 Bleacher Seat 1 & 2
     if (this.layout.seats.some(s => s.metadata.bleacherType === 1)) {
-      items.push({ color: theme.seatBleacher1 || '#f97316', label: 'Bleacher Seat 1' })
+      items.push({ color: theme.seatBleacher1 || '#f97316', label: 'Parents Seat' })
     }
     if (this.layout.seats.some(s => s.metadata.bleacherType === 2)) {
-      items.push({ color: theme.seatBleacher2 || '#8b5cf6', label: 'Bleacher Seat 2' })
+      items.push({ color: theme.seatBleacher2 || '#8b5cf6', label: 'Faculty Seat' })
     }
     
     // 3. Stage
@@ -1707,6 +1711,53 @@ export class Canvas2DRenderer {
     this.ctx.fillText('No seats fit in this layout', this.canvas.width / 2, y + 28)
     this.ctx.font = '12px sans-serif'
     this.ctx.fillText('Try reducing seat size or spacing, or increase the available floor area.', this.canvas.width / 2, y + 54)
+    this.ctx.restore()
+  }
+
+  private drawExitIcons(): void {
+    if (!this.layout) return
+
+    for (const zone of this.layout.zones) {
+      if (zone.type === ZoneType.EMERGENCY || zone.id === 'entrance') {
+        const centerX = (zone.bounds.minX + zone.bounds.maxX) / 2
+        const centerY = (zone.bounds.minY + zone.bounds.maxY) / 2
+        const screenX = centerX * this.renderContext.scale + this.renderContext.offsetX
+        const screenY = centerY * this.renderContext.scale + this.renderContext.offsetY
+
+        this.drawEmergencyIcon(screenX, screenY, 24)
+      }
+    }
+  }
+
+  private drawEmergencyIcon(x: number, y: number, size: number): void {
+    this.ctx.save()
+    this.ctx.translate(x, y)
+
+    // Background red rounded rect
+    const half = size / 2
+    this.ctx.fillStyle = '#ef4444'
+    this.ctx.beginPath()
+    this.ctx.roundRect(-half, -half, size, size, 4)
+    this.ctx.fill()
+
+    // Simple white EXIT symbol
+    this.ctx.strokeStyle = 'white'
+    this.ctx.lineWidth = 2
+    this.ctx.lineCap = 'round'
+    this.ctx.lineJoin = 'round'
+
+    // Door outline
+    this.ctx.strokeRect(-half + 4, -half + 4, size - 12, size - 8)
+
+    // Running man / Arrow (simplified)
+    this.ctx.beginPath()
+    this.ctx.moveTo(0, 0)
+    this.ctx.lineTo(half - 4, 0)
+    this.ctx.lineTo(half - 8, -4)
+    this.ctx.moveTo(half - 4, 0)
+    this.ctx.lineTo(half - 8, 4)
+    this.ctx.stroke()
+
     this.ctx.restore()
   }
 
