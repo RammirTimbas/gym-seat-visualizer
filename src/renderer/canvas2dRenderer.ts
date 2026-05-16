@@ -1590,7 +1590,7 @@ export class Canvas2DRenderer {
     const theme = this.colors[this.renderOptions.theme || 'light']
     
     // Only include elements that are actually present in the layout
-    const items: Array<{ color: string; label: string }> = []
+    const items: Array<{ color: string; label: string; isIcon?: boolean }> = []
     
     // 1. Graduates (Occupied seats)
     if (this.layout.seats.some(s => s.metadata.occupied)) {
@@ -1635,6 +1635,11 @@ export class Canvas2DRenderer {
       items.push({ color: '#ededed', label: 'Aisle' })
     }
 
+    // 8. Emergency Exit
+    if (this.layout.zones.some(z => z.type === ZoneType.EMERGENCY)) {
+      items.push({ color: '#ef4444', label: 'Emergency Exit', isIcon: true })
+    }
+
     if (items.length === 0) return
 
     const padding = 12
@@ -1664,11 +1669,17 @@ export class Canvas2DRenderer {
     this.ctx.font = '12px sans-serif'
     items.forEach((item, index) => {
       const rowY = y + padding + 22 + index * lineHeight
-      this.ctx.fillStyle = item.color
-      this.ctx.fillRect(x + padding, rowY + 2, swatchSize, swatchSize)
-      this.ctx.strokeStyle = 'rgba(0,0,0,0.15)'
-      this.ctx.lineWidth = 1
-      this.ctx.strokeRect(x + padding, rowY + 2, swatchSize, swatchSize)
+
+      if (item.isIcon) {
+        // Draw the emergency icon centered in the swatch area
+        this.drawEmergencyIcon(x + padding + swatchSize / 2, rowY + 2 + swatchSize / 2, swatchSize)
+      } else {
+        this.ctx.fillStyle = item.color
+        this.ctx.fillRect(x + padding, rowY + 2, swatchSize, swatchSize)
+        this.ctx.strokeStyle = 'rgba(0,0,0,0.15)'
+        this.ctx.lineWidth = 1
+        this.ctx.strokeRect(x + padding, rowY + 2, swatchSize, swatchSize)
+      }
 
       this.ctx.fillStyle = theme.text
       this.ctx.fillText(item.label, x + padding + swatchSize + 8, rowY)
@@ -1784,20 +1795,21 @@ export class Canvas2DRenderer {
 
     // Simple white EXIT symbol
     this.ctx.strokeStyle = 'white'
-    this.ctx.lineWidth = 2
+    this.ctx.lineWidth = Math.max(1, size / 12)
     this.ctx.lineCap = 'round'
     this.ctx.lineJoin = 'round'
 
     // Door outline
-    this.ctx.strokeRect(-half + 4, -half + 4, size - 12, size - 8)
+    const doorPadding = size / 6
+    this.ctx.strokeRect(-half + doorPadding, -half + doorPadding, size - doorPadding * 3, size - doorPadding * 2)
 
     // Running man / Arrow (simplified)
     this.ctx.beginPath()
     this.ctx.moveTo(0, 0)
-    this.ctx.lineTo(half - 4, 0)
-    this.ctx.lineTo(half - 8, -4)
-    this.ctx.moveTo(half - 4, 0)
-    this.ctx.lineTo(half - 8, 4)
+    this.ctx.lineTo(half - doorPadding, 0)
+    this.ctx.lineTo(half - doorPadding - 2, -2)
+    this.ctx.moveTo(half - doorPadding, 0)
+    this.ctx.lineTo(half - doorPadding - 2, 2)
     this.ctx.stroke()
 
     this.ctx.restore()
